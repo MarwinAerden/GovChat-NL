@@ -91,7 +91,7 @@ In deze handleiding leggen we stap voor stap uit hoe je een ontwikkelomgeving op
 
 ### **1. WSL openen in VS Code**
 1. Open twee WSL-terminals in VS Code:
-   ![WSL-Terminals](images/WSLShell.png)
+   ![WSL-Terminals](images/WSL-shell.png)
 2. Als het project niet zichtbaar is, start WSL normaal op en typ:
 
     ```bash
@@ -174,7 +174,7 @@ In deze handleiding leggen we stap voor stap uit hoe je een ontwikkelomgeving op
 ### **Error Backend Required**
 | Error | Beschrijving                                                                                     |
 |-------|-------------------------------------------------------------------------------------------------|
-| ![Backend Required](images/Backendrequired.png) | Dit geeft aan dat "CORS_ALLOW_ORIGIN" niet lokaal is ingesteld. Pas dit aan naar "localhost". |
+| ![Backend Required](images/backend-required.png) | Dit geeft aan dat "CORS_ALLOW_ORIGIN" niet lokaal is ingesteld. Pas dit aan naar "localhost". |
 
 ---
 
