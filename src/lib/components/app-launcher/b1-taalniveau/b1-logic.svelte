@@ -1,23 +1,24 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, getContext } from 'svelte'; 
   import { models, settings } from '$lib/stores';
   import { WEBUI_BASE_URL } from '$lib/constants';
+  import { fade } from 'svelte/transition';
   import { toast } from 'svelte-sonner';
+  import Modal from '$lib/components/common/Modal.svelte';
+  
+  // Add modal control variables
+  let showPreservedWordsModal = false;
+  let showInfoModal = false; // New variable for info modal
 
   let inputText = '';
   let outputText = '';
   let isLoading = false;
   let error = null;
+  let newPreservedWord = '';
   let showOutput = false;
   let languageLevel = 'B1';
-  let selectedModel = '';
-  let fileInput;
-  let isProcessingFile = false;
-  let fileProcessingProgress = 0;
-  let fileProgressDone = false;
-  let fileProcessingInterval = null;
-  let isFlashing = false;
-  let outputProgressFinal = false;
+
+  let useDefaultWords = true;
 
   const originalDefaultWords = [
     'Provinciale Staten', 'Gedeputeerde Staten', 'Directieteam', 'Regulier overleg (RO)',
@@ -36,313 +37,605 @@
     'Natuur- en landschapsbeheerorganisaties'
   ];
 
-  let useDefaultWords = true;
   let activeDefaultWords = [...originalDefaultWords];
   let userWords = [];
-  let newPreservedWord = '';
-  $: preservedWords = useDefaultWords
-    ? [...new Set([...userWords, ...activeDefaultWords])]
-    : [...new Set(userWords)];
+
+  // Reactive statement for preservedWords based on user words and default toggle
+  $: preservedWords = useDefaultWords ? [...new Set([...userWords, ...activeDefaultWords])] : [...new Set(userWords)]; // Use Set to ensure uniqueness
+
+  // Model selection logic
+  let selectedModels = ['']; 
   $: availableModels = $models || [];
-  onMount(() => {
-    if (selectedModel) return;
+
+  onMount(async () => {
+    // Load model selection from settings or local storage
     const storedModels = $settings?.models?.length > 0 ? $settings.models : null;
-    if (storedModels?.length) {
-      selectedModel = storedModels[0];
+    const storedModelLegacy = localStorage.getItem('selectedModel'); // Check legacy single model storage
+
+    if (storedModels) {
+      selectedModels = storedModels;
+    } else if (storedModelLegacy) {
+       selectedModels = [storedModelLegacy]; // Convert legacy storage to array
+       localStorage.removeItem('selectedModel'); // Clean up legacy item
+       // Optionally save the new array format back to settings/localStorage
+       settings.update(s => ({ ...s, models: selectedModels }));
+       localStorage.setItem('selectedModels', JSON.stringify(selectedModels)); // Example using new key
     } else {
-      selectedModel = availableModels.length ? availableModels[0].id : '';
+      // Fallback to first available model if no selection stored
+      selectedModels = availableModels.length ? [availableModels[0].id] : [''];
     }
   });
-  $: if (!selectedModel && availableModels.length) selectedModel = availableModels[0].id;
-  $: if (selectedModel && !availableModels.find(m => m.id === selectedModel) && availableModels.length) selectedModel = availableModels[0].id;
 
-  function countWords(txt) {
-    return txt ? txt.trim().split(/\s+/).filter(w => w.length > 0).length : 0;
+  // Word counting and progress variables
+  let wordCountPercentage = 0;
+  let inputWordCount = 0;
+  let outputWordCount = 0;
+
+  function countWords(text) {
+    if (!text) return 0;
+    return text.trim().split(/\s+/).filter(word => word.length > 0).length;
   }
-  $: inputWordCount = countWords(inputText);
-  $: outputWordCount = countWords(outputText);
 
+  $: inputWordCount = countWords(inputText);
+
+  // Chunk processing variables
   let chunkResults = [];
   let totalChunks = 0;
   let receivedChunks = 0;
-  const MAX_WORDS = 24750;
-  $: outputProgress = totalChunks > 0 ? Math.round((receivedChunks / totalChunks) * 100) : (isLoading ? 0 : (outputText ? 100 : 0));
-  $: if (outputProgress === 100 && isLoading === false) outputProgressFinal = true;
-  $: if (isLoading) outputProgressFinal = false;
 
-  // Drag & drop
-  let dragActive = false;
-  function handleDrag(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    dragActive = e.type === 'dragover' || e.type === 'dragenter';
-  }
-  async function handleDrop(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    dragActive = false;
-    const file = e.dataTransfer?.files?.[0];
-    if (file) processFileUpload(file);
-  }
-  async function handleFileInputChange(e) {
-    const file = e.target?.files?.[0];
-    if (file) processFileUpload(file);
-    if (fileInput) fileInput.value = '';
-  }
-  async function processFileUpload(file) {
-    if (!file) return;
-    if (!file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
-      toast.error('Alleen Word, PDF, TXT of RTF toegestaan'); return;
-    }
-    isProcessingFile = true; isFlashing = true; fileProcessingProgress = 0; fileProgressDone = false;
-    if (fileProcessingInterval) clearInterval(fileProcessingInterval);
-    fileProcessingInterval = setInterval(() => {
-      if (fileProcessingProgress < 97) fileProcessingProgress += 3;
-      else clearInterval(fileProcessingInterval);
-    }, 35);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const uploadResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-        body: formData
-      });
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json().catch(() => ({ detail: 'Fout bij upload' }));
-        throw new Error(errorData.detail || 'Fout bij upload bestand');
-      }
-      const uploadData = await uploadResponse.json();
-      if (uploadData.content) { inputText = uploadData.content; }
-      else if (uploadData.id) {
-        const contentResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files/${uploadData.id}/data/content`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-        });
-        if (!contentResponse.ok) throw new Error('Fout bij ophalen bestand');
-        const textData = await contentResponse.json();
-        inputText = textData.content;
-      } else {
-        throw new Error('Onbekend antwoordformaat van upload endpoint');
-      }
-      if (file.name.match(/\.(doc|docx)$/i)) {
-        inputText = inputText.replace(/<strong>(.*?)<\/strong>/gi, '**$1**');
-      }
-      toast.success('Bestand verwerkt');
-      fileProgressDone = true;
-    } catch (err) {
-      toast.error(`Fout bestand: ${err.message}`);
-      inputText = '';
-      fileProgressDone = false;
-    } finally {
-      if (fileProcessingInterval) clearInterval(fileProcessingInterval);
-      fileProcessingInterval = null;
-      fileProcessingProgress = 100;
-      isProcessingFile = false;
-      setTimeout(() => { isFlashing = false; }, 800);
-    }
-  }
+  const MAX_WORDS = 24750; // Define the word limit
 
+  // Main function to trigger text simplification
   async function simplifyText() {
+    // Reset errors and state
     error = null;
-    if (!inputText.trim()) { error = "Voer tekst in om te vereenvoudigen"; toast.error(error); return; }
-    if (!selectedModel)   { error = "Selecteer eerst een taalmodel"; toast.error(error); return; }
-    if (inputWordCount > MAX_WORDS) { error = `De invoertekst (${inputWordCount} woorden) overschrijdt de limiet van ${MAX_WORDS} woorden.`; toast.error(error); return; }
-    isLoading = true; outputText = ''; chunkResults = []; totalChunks = 0; receivedChunks = 0; showOutput = true;
+    isLoading = true;
+    outputText = '';
+    chunkResults = [];
+    totalChunks = 0;
+    receivedChunks = 0;
+    outputWordCount = 0;
+    wordCountPercentage = 0;
+    showOutput = true; // Show output area immediately
+
+    // --- Input Validations ---
+    if (!inputText.trim()) {
+      error = "Voer tekst in om te vereenvoudigen";
+      toast.error(error);
+      isLoading = false;
+      showOutput = false;
+      return;
+    }
+
+    if (inputWordCount > MAX_WORDS) {
+      error = `De invoertekst (${inputWordCount} woorden) overschrijdt de limiet van ${MAX_WORDS} woorden.`;
+      toast.error(error);
+      isLoading = false;
+      showOutput = false; // Don't show output area if input is invalid
+      return;
+    }
+
+    const currentModel = selectedModels[0]; // Get the currently selected model
+    if (!currentModel) {
+      error = "Selecteer eerst een model";
+      toast.error(error);
+      isLoading = false;
+      showOutput = false;
+      return;
+    }
+    // --- End Validations ---
+
+
     try {
       const response = await fetch(`${WEBUI_BASE_URL}/api/b1/translate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
           text: inputText,
-          model: selectedModel,
-          preserved_words: preservedWords,
+          model: currentModel, // Use the validated model
+          preserved_words: preservedWords, // Use the reactive preservedWords
           language_level: languageLevel
         })
       });
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: `HTTP error! status: ${response.status}` }));
-        let message = '';
-        if (Array.isArray(errorData.detail)) {
-          message = errorData.detail.map(e =>
-            (typeof e === 'object' && e !== null && e.msg)
-              ? e.msg
-              : JSON.stringify(e)
-          ).join('; ');
-        } else if (typeof errorData.detail === 'object') {
-          message = JSON.stringify(errorData.detail);
-        } else {
-          message = errorData.detail || `HTTP error! status: ${response.status}`;
-        }
-        toast.error("Fout bij vereenvoudigen: " + message);
-        throw new Error(message);
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
       }
-      if (!response.body) throw new Error("Response body is missing");
+
+      if (!response.body) {
+        throw new Error("Response body is missing");
+      }
+
+      // Process the streaming response
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = '';
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+
         buffer += value;
         const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        buffer = lines.pop() || ''; // Keep the potentially incomplete last line
+
         for (const line of lines) {
-          if (!line.trim()) continue;
+          if (line.trim() === '') continue;
+
           try {
             const parsed = JSON.parse(line);
+
             if (parsed.total_chunks !== undefined) {
-              totalChunks = parsed.total_chunks; chunkResults = totalChunks > 0 ? Array(totalChunks).fill('') : [];
+              totalChunks = parsed.total_chunks;
+              // Initialize results array only if totalChunks > 0
+              chunkResults = totalChunks > 0 ? Array(totalChunks).fill('') : [];
             } else if (parsed.index !== undefined && parsed.text !== undefined) {
               if (parsed.index >= 0 && parsed.index < totalChunks) {
                 chunkResults[parsed.index] = parsed.text;
                 receivedChunks++;
-                outputText = chunkResults.map(chunk => chunk || '').join('\n');
+
+                // Update output text by joining received chunks
+                outputText = chunkResults.map(chunk => chunk ?? '').join('\n'); // Use ?? for nullish coalescing
+
+                // Update progress
+                wordCountPercentage = totalChunks > 0 ? Math.round((receivedChunks / totalChunks) * 100) : 0;
+              } else {
+                 console.warn("Received chunk with out-of-bounds index:", parsed);
               }
             }
           } catch (e) {
-            console.error('Streamed JSON parse error:', e, line);
+            console.error("Error parsing streamed JSON line:", e, "Line:", line);
+            // Optionally show a user-facing error or handle differently
           }
         }
       }
-      outputText = chunkResults.map(chunk => chunk || '').join('\n');
+
+      // Final update after stream ends
+      outputText = chunkResults.map(chunk => chunk ?? '').join('\n');
+      outputWordCount = countWords(outputText);
+      wordCountPercentage = 100; // Ensure 100% at the end
+
     } catch (err) {
+      console.error('Error simplifying text:', err);
       error = `Fout: ${err.message}`;
-      showOutput = false;
+      toast.error(`Fout bij vereenvoudigen: ${err.message}`);
+      showOutput = false; // Hide output on error
     } finally {
       isLoading = false;
+      // Final progress state adjustments
+      if (!error && totalChunks > 0) {
+          wordCountPercentage = 100;
+          receivedChunks = totalChunks; // Ensure counter matches total
+      } else if (error) {
+          wordCountPercentage = 0; // Reset progress on error
+      } else if (totalChunks === 0 && !error) {
+          // Handle case where input resulted in zero chunks (e.g., only whitespace)
+          wordCountPercentage = 100;
+          outputText = inputText; // Or keep outputText empty? Decide desired behavior.
+          outputWordCount = countWords(outputText);
+      }
     }
   }
 
+  // Function to add a word to the user's preserved list
   function addPreservedWord() {
-    const word = newPreservedWord.trim();
-    if (word && !userWords.includes(word)) userWords = [...userWords, word];
-    newPreservedWord = '';
+    const wordToAdd = newPreservedWord.trim();
+    if (wordToAdd) {
+      // Avoid adding duplicates directly to userWords
+      if (!userWords.includes(wordToAdd)) {
+          userWords = [...userWords, wordToAdd];
+      }
+      newPreservedWord = ''; // Clear input field
+    }
   }
-  function removePreservedWord(w) {
-    userWords = userWords.filter(word => word !== w);
-    activeDefaultWords = activeDefaultWords.filter(word => word !== w);
-  }
-  $: if (useDefaultWords) activeDefaultWords = [...originalDefaultWords];
-  function processText(text) {
-    return text ? text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') : '';
-  }
-</script>
 
-<div class="root-vfill">
-  <div class="maxwidthbox">
-    <h1 class="title">{languageLevel}-Taalniveau Vereenvoudiger</h1>
-    <div class="row settingsrow">
-      <div>
-        <label class="label">Kies taalmodel:</label>
-        {#if availableModels.length > 0}
-          <select bind:value={selectedModel}><option value="">Kies...</option>
-            {#each availableModels as m}<option value={m.id}>{m.title || m.id}</option>{/each}
-          </select>
-        {:else}
-          <span class="error-text">Geen modellen beschikbaar</span>
-        {/if}
+  // Function to remove a word from preserved lists
+  function removePreservedWord(wordToRemove) {
+    // Remove from user list if present
+    userWords = userWords.filter(w => w !== wordToRemove);
+    // Remove from active default list if present (allows temporarily disabling a default word)
+    activeDefaultWords = activeDefaultWords.filter(w => w !== wordToRemove);
+  }
+
+  // Reactive effect to reset activeDefaultWords when the toggle is turned on
+  $: if (useDefaultWords) {
+    // Ensure activeDefaultWords contains all original defaults not explicitly removed by the user
+    // This logic might need refinement depending on desired behavior when toggling off/on
+     activeDefaultWords = [...originalDefaultWords]; // Simple reset for now
+  } else {
+    // Optionally clear activeDefaultWords when toggled off, or leave as is
+    // activeDefaultWords = [];
+  }
+
+  // File handling variables
+  let fileInput; // Reference to the file input element
+  let isProcessingFile = false;
+  let isFlashing = false; // For visual feedback on drop/upload
+  let fileProcessingProgress = 0; // State for fake progress
+  let fileProcessingInterval = null; // Interval timer reference
+
+  // Updated file upload handler using /api/v1/files
+  async function handleFileUpload(event) {
+    const file = event.target?.files?.[0]; // Use optional chaining
+    if (!file) return;
+
+    // Validate file type
+    if (!file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
+      toast.error('Alleen Word, PDF, TXT of RTF bestanden zijn toegestaan');
+      return;
+    }
+
+    // --- Start Fake Progress ---
+    isProcessingFile = true;
+    isFlashing = true; // Start visual feedback
+    fileProcessingProgress = 0; // Reset progress
+    if (fileProcessingInterval) clearInterval(fileProcessingInterval); // Clear previous interval if any
+
+    fileProcessingInterval = setInterval(() => {
+      if (fileProcessingProgress < 99) {
+        fileProcessingProgress += 1; // Increment by 2% each time
+        if (fileProcessingProgress > 98) {
+          // Slow down near the end to simulate waiting for processing // Stop at 99%
+          fileProcessingProgress = 99;
+        }
+      } else {
+        clearInterval(fileProcessingInterval);
+        fileProcessingInterval = null;
+      }
+    }, 50); // Update every 50ms for smoother feel (adjust as needed)
+    // --- End Fake Progress Start ---
+
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      // The 'type' might not be needed depending on the backend /api/v1/files implementation
+      // formData.append('type', 'document');
+
+      // Call the standard file upload endpoint
+      const uploadResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          // Content-Type is set automatically by browser for FormData
+        },
+        body: formData
+      });
+
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json().catch(() => ({ detail: 'Fout bij uploaden bestand' }));
+        throw new Error(errorData.detail || 'Fout bij uploaden bestand');
+      }
+
+      const uploadData = await uploadResponse.json();
+
+      // Assuming the upload endpoint returns the extracted text or an ID to fetch it
+      // The previous code fetched content separately, adjust based on actual /api/v1/files response
+      if (uploadData.content) { // If content is directly in response
+         inputText = uploadData.content;
+      } else if (uploadData.id) { // If an ID is returned, fetch content
+          const contentResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files/${uploadData.id}/data/content`, {
+              method: 'GET',
+              headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+          });
+          if (!contentResponse.ok) {
+              throw new Error('Fout bij ophalen bestandsinhoud na upload');
+          }
+          const textData = await contentResponse.json();
+          inputText = textData.content;
+      } else {
+          throw new Error('Onbekend antwoordformaat van upload endpoint');
+      }
+
+
+      // Convert strong tags from potential backend processing back to markdown **
+      // This depends on whether the /api/v1/files endpoint returns HTML or plain text
+      // Assuming it might return HTML with <strong> for bold from docx
+      if (file.name.match(/\.(doc|docx)$/i)) {
+        // Be cautious with replace, ensure it doesn't break intended markdown
+        inputText = inputText.replace(/<strong>(.*?)<\/strong>/gi, '**$1**');
+      }
+
+      toast.success('Bestand succesvol verwerkt');
+
+    } catch (err) {
+      console.error('Error processing file:', err);
+      toast.error(`Fout bij verwerken bestand: ${err.message}`);
+      inputText = ''; // Clear input on error
+    } finally {
+      // --- Stop Fake Progress ---
+      if (fileProcessingInterval) clearInterval(fileProcessingInterval); // Clear interval if still running
+      fileProcessingInterval = null;
+      fileProcessingProgress = 100; // Set to 100% on completion (success or error)
+      isProcessingFile = false; // Set processing to false *after* setting progress to 100
+      // --- End Fake Progress Stop ---
+
+      if (fileInput) fileInput.value = ''; // Reset file input
+      // End visual feedback after a short delay
+      setTimeout(() => {
+        isFlashing = false;
+        // Optionally reset progress visual after flash animation
+        // setTimeout(() => { fileProcessingProgress = 0; }, 500); // Reset after another delay if needed
+      }, 1000);
+    }
+  }
+
+  // Helper function to convert markdown **bold** to HTML <strong> for display
+  function processText(text) {
+    if (!text) return '';
+    // Replace **text** with <strong>text</strong>, handle spaces around **
+    return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  }
+
+  // Reactive calculation for progress display text
+  $: progressDisplay = totalChunks > 0 ? Math.round((receivedChunks / totalChunks) * 100) : (isLoading ? 0 : (outputText ? 100 : 0));
+
+</script>
+<div class="max-w-7xl mx-auto mt-6">
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
+    <div class="flex justify-between items-center mb-6">
+      <div class="flex items-center gap-2">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-white">
+          {languageLevel}-Taalniveau Vereenvoudiger
+        </h1>
+        <!-- Add info button next to the title -->
+        <button
+          on:click={() => showInfoModal = true}
+          class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium py-1 px-2 rounded-full focus:outline-none focus:shadow-outline flex items-center justify-center w-6 h-6"
+          aria-label="Informatie over de B1-taalniveau app"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </button>
       </div>
-      <div>
-        <label class="label" for="language-level-select">Taalniveau:</label>
-        <select id="language-level-select" bind:value={languageLevel}>
-          <option value="B1">B1</option><option value="B2">B2</option>
+      
+      <!-- Taalniveau dropdown -->
+      <div class="flex items-center">
+        <label for="language-level-select" class="mr-2 text-sm text-gray-600 dark:text-gray-400">Taalniveau:</label>
+        <select 
+          id="language-level-select"
+          bind:value={languageLevel}
+          class="px-3 py-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm"
+        >
+          <option value="B1">B1</option>
+          <option value="B2">B2</option>
         </select>
       </div>
     </div>
+    
     {#if error}
-      <div class="alert-error">{error}</div>
+      <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4" transition:fade>
+        {error}
+      </div>
     {/if}
-    <div class="presblock">
-      <div class="pres-controls">
-        <input type="text" bind:value={newPreservedWord} placeholder="Woord toevoegen"
-          on:keydown={(e) => e.key === 'Enter' && addPreservedWord()} />
-        <button type="button" class="presaddbtn" on:click={addPreservedWord}>Toevoegen</button>
-        <label class="checkbox">
-          <input type="checkbox" bind:checked={useDefaultWords} /> Standaardtermen ({originalDefaultWords.length})
-        </label>
-      </div>
-      <div class="preserved-tags-scroll">
-        {#each preservedWords as word (word)}
-          <span class="tag">{word}
-            <button class="tag-x" on:click={() => removePreservedWord(word)}>×</button>
-          </span>
-        {/each}
-      </div>
-    </div>
-
-    <div class="mainflexfill">
-      <!-- Input -->
-      <div class="contentbox tallbox">
-        <label class="input-label">Originele tekst</label>
-        <div class="vfill textarea-holder {isFlashing ? 'flash' : ''} {dragActive ? 'drop-highlight' : ''}"
-          on:dragover={handleDrag} on:dragenter={handleDrag}
-          on:dragleave={handleDrag} on:drop={handleDrop}>
-          <textarea bind:value={inputText} rows="8" disabled={isLoading}
-            placeholder="Voer tekst in..." class="textboxarea vfill"></textarea>
-        </div>
-        <div class="footerrow vfooter">
-          <button type="button" class="fileuploadbtn" on:click={()=>fileInput.click()} disabled={isProcessingFile}>
-              <svg width="18" height="18" fill="currentColor" viewBox="0 0 20 20"><path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3 3m0 0l-3-3m3 3V8"/></svg>
-              Bestand
-          </button>
-          <input type="file" accept=".doc,.docx,.pdf,.txt,.rtf" class="uploadinvis" bind:this={fileInput} on:change={handleFileInputChange}/>
-          <span class="draghint">of sleep bestand hierheen (Word, PDF, TXT, RTF)</span>
-          <div class="progressbar-container">
-            <div class="progressbar-bar"
-              style="width: {(isProcessingFile||fileProcessingProgress===100)?fileProcessingProgress:0}%"></div>
-          </div>
-          {#if isProcessingFile}
-            <div class="progressbarlabel">Bestand verwerken...</div>
-          {:else if fileProcessingProgress === 100 && fileProgressDone}
-            <div class="progressbarlabel">Bestand verwerkt</div>
-          {/if}
-          <div class="input-info">
-            Aantal woorden: {inputWordCount} / {MAX_WORDS}
-          </div>
-        </div>
-      </div>
-
-      <!-- Pijlknop -->
-      <div class="translatecol">
-        <button class="vl-btn" type="button" on:click={simplifyText}
-          disabled={!inputText || !selectedModel || isLoading}>
-          {#if isLoading}
-            <span class="spinner"></span>
-          {:else}
-            <svg width="32" height="32" fill="none" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#2563eb"/><path d="M20 12l4 4m0 0l-4 4m4-4H8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          {/if}
-        </button>
-      </div>
-      <!-- Output -->
-      <div class="contentbox tallbox">
-        <label class="input-label">Vereenvoudigde tekst</label>
-        <div class="vfill outputshow">
-          {#if isLoading}
-            <span class="busy">Vereenvoudigen, even geduld...</span>
-          {/if}
-          {#if showOutput}
-            <div>{@html processText(outputText)}</div>
-            <button class="copybtn" on:click={() => navigator.clipboard.writeText(outputText).then(() => toast.success('Tekst gekopieerd!'))}>Kopieer</button>
-          {:else if !isLoading}
-            <span class="output-placeholder">Hier verschijnt de vereenvoudigde tekst na verwerking.</span>
-          {/if}
-        </div>
-        <div class="footerrow vfooter">
-          <div class="progressbar-container">
-            <div class="progressbar-bar" style="width: {(isLoading || outputProgressFinal) ? 100 : 0}%"></div>
-          </div>
-          <div class="progressbarlabel">
-            {#if isLoading}
-              {receivedChunks}/{totalChunks} paragrafen verwerkt
-            {:else if outputProgressFinal}
-              Klaar
+    
+    <!-- Replace existing preserved words section - removed button -->
+    <div class="mb-4">
+      <!-- Removed the flex justify-between and the button -->
+      <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+        Woorden die niet vereenvoudigd mogen worden:
+      </h3>
+      
+      <!-- Preview of preserved words (first 5 with count) -->
+      {#if preservedWords.length > 0}
+        <div class="text-sm text-gray-600 dark:text-gray-400">
+          <div class="flex flex-wrap gap-1">
+            {#each preservedWords.slice(0, 5) as word}
+              <!-- Keep clickable words to open modal -->
+              <span 
+                class="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-2 py-0.5 rounded-md cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                on:click={() => showPreservedWordsModal = true}
+                role="button"
+              >
+                {word}
+              </span>
+            {/each}
+            {#if preservedWords.length > 5}
+              <span 
+                class="text-gray-500 dark:text-gray-400 px-2 py-0.5 cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                on:click={() => showPreservedWordsModal = true}
+                role="button"
+              >
+                +{preservedWords.length - 5} meer...
+              </span>
             {/if}
           </div>
-          <div class="output-info">
-            Aantal woorden: {outputWordCount}
+        </div>
+      {:else}
+        <div 
+          class="text-sm text-gray-600 dark:text-gray-400 italic cursor-pointer hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+          on:click={() => showPreservedWordsModal = true}
+          role="button"
+        >
+          Geen woorden geselecteerd
+        </div>
+      {/if}
+    </div>
+    
+    <!-- Flex container voor input en output naast elkaar -->
+    <div class="flex flex-col md:flex-row gap-6">
+      <!-- Linker kolom: Input -->
+      <div class="flex-1 flex flex-col">
+        <label for="input" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Originele tekst
+        </label>
+        <div class="relative flex flex-col h-full flex-grow">
+          <!-- Textarea with consistent height -->
+          <textarea
+            id="input"
+            bind:value={inputText}
+            rows="12"
+            draggable="false"
+            class="w-full h-[400px] flex-grow px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white min-h-[250px] md:min-h-[400px] overflow-y-auto font-[system-ui] {isFlashing ? 'flash-animation' : ''}"
+            placeholder="Voer hier de tekst in die je wilt vereenvoudigen naar {languageLevel}-taalniveau."
+            disabled={isLoading}
+            spellcheck="false"
+            on:dragover|preventDefault
+            on:drop|preventDefault={(event) => {
+              const file = event.dataTransfer.files[0];
+              if (file) {
+                if (file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
+                  handleFileUpload({ target: { files: [file] } });
+                } else {
+                  toast.error('Alleen Word, PDF, TXT of RTF bestanden zijn toegestaan');
+                }
+              }
+            }}
+          ></textarea>
+
+          <!-- Bottom section with fixed height and spacing -->
+          <div class="mt-auto">
+            <!-- Progress bar - same position as right side -->
+            <div class="mt-2 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+              <div class="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div
+                  class="bg-blue-600 h-2 rounded-full transition-all duration-200"
+                  style="width: {isProcessingFile ? fileProcessingProgress : (fileProcessingProgress === 100 ? 100 : 0)}%"
+                ></div>
+              </div>
+              <span class="min-w-[4rem] text-right">
+                {isProcessingFile ? fileProcessingProgress : (fileProcessingProgress === 100 ? 100 : 0)}%
+              </span>
+            </div>
+
+            <!-- Status text - fixed height -->
+            <div class="mt-1 h-5 text-xs text-gray-500 dark:text-gray-400">
+              {#if isProcessingFile}
+                <span>Verwerken...</span>
+              {:else if fileProcessingProgress === 100}
+                <span>Bestand verwerkt</span>
+              {:else}
+                <span>of sleep bestand naar invoerveld (Word, PDF, TXT, RTF)</span>
+              {/if}
+            </div>
+
+            <!-- Button row - exactly same structure as right side -->
+            <div class="mt-1 flex justify-between pb-2">
+              <input
+                type="file"
+                id="fileInput"
+                class="hidden"
+                bind:this={fileInput}
+                accept=".doc,.docx,.pdf,.txt,.rtf"
+                on:change={handleFileUpload}
+              />
+              
+              <button
+                on:click={() => fileInput.click()}
+                disabled={isProcessingFile}
+                class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium py-1 px-3 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 min-w-[140px] flex items-center justify-center gap-2"
+              >
+                {#if isProcessingFile}
+                  <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Verwerken...</span>
+                {:else if !isProcessingFile && fileProcessingProgress === 100}
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>Bestand verwerkt</span>
+                {:else}
+                  <span>Upload document</span>
+                {/if}
+              </button>
+              
+              <!-- Empty div to match the structure of right side -->
+              <div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Midden: Translate button -->
+      <div class="hidden md:flex flex-col items-center justify-center">
+        <button
+          on:click={simplifyText}
+          disabled={isLoading || !selectedModels[0]}
+          class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-full focus:outline-none focus:shadow-outline disabled:opacity-50 h-12 w-12 flex items-center justify-center"
+          title="Vereenvoudig naar {languageLevel}-taalniveau"
+        >
+          {#if isLoading}
+            <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          {:else}
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
+          {/if} 
+        </button>
+      </div>
+
+      <!-- Rechter kolom: Output - IDENTICAL dimensions to left column -->
+      <div class="flex-1 flex flex-col">
+        <label for="output" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          {languageLevel}-taalniveau tekst
+        </label>
+        <div class="relative flex flex-col h-full flex-grow">
+          <!-- Output with EXACT same height as input -->
+          {#if showOutput}
+            <div
+              id="output"
+              class="w-full h-[400px] flex-grow px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white min-h-[250px] md:min-h-[400px] overflow-y-auto whitespace-pre-wrap font-[system-ui]"
+              transition:fade={{ duration: 200 }}
+            >
+              {@html processText(outputText)}
+            </div>
+          {:else if !isLoading}
+            <div class="w-full h-[400px] flex-grow px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400 min-h-[250px] md:min-h-[400px] flex items-center justify-center">
+              <p>Hier verschijnt de vereenvoudigde tekst na verwerking</p>
+            </div>
+          {/if}
+
+          <!-- Bottom section with fixed height and spacing -->
+          <div class="mt-auto">
+            <!-- Progress bar - same position as left side -->
+            <div class="mt-2 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+              <div class="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div
+                  class="bg-blue-600 h-2 rounded-full transition-all duration-200"
+                  style="width: {wordCountPercentage}%"
+                ></div>
+              </div>
+              <span class="min-w-[4rem] text-right">
+                {progressDisplay}%
+              </span>
+            </div>
+
+            <!-- Status text - fixed height -->
+            <div class="mt-1 h-5 text-xs text-gray-500 dark:text-gray-400">
+              {#if isLoading}
+                <span>Paragrafen verwerkt: {receivedChunks} / {totalChunks || '?'}</span>
+              {:else if outputText}
+                <span>Woorden: {outputWordCount} (Origineel: {inputWordCount})</span>
+              {:else}
+                <span>Klaar om te verwerken</span>
+              {/if}
+            </div>
+
+            <!-- Button row - exactly same structure as left side -->
+            <div class="mt-1 flex justify-between pb-2">
+              <!-- Empty div to match the structure of left side -->
+              <div></div>
+              
+              <button
+                on:click={() => {
+                  navigator.clipboard.writeText(outputText);
+                  toast.success('Tekst gekopieerd naar klembord!');
+                }}
+                disabled={!outputText}
+                class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium py-1 px-3 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 min-w-[140px] flex items-center justify-center"
+              >
+                Kopieer naar klembord
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -350,91 +643,214 @@
   </div>
 </div>
 
+<!-- Modal for preserved words management -->
+<Modal
+  bind:show={showPreservedWordsModal}
+  size="md"
+  containerClassName="p-0"
+>
+  <div class="p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-xl font-bold text-gray-800 dark:text-white">
+        Woorden die niet vereenvoudigd worden
+      </h2>
+      <button
+        on:click={() => showPreservedWordsModal = false}
+        class="text-gray-400 hover:text-gray-500 focus:outline-none"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+    
+    <!-- Input field to add new words -->
+    <div class="flex mb-4">
+      <input
+        type="text"
+        bind:value={newPreservedWord}
+        placeholder="Voer een woord of term in"
+        class="flex-grow px-3 py-2 border border-gray-300 rounded-l-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+        on:keydown={(e) => e.key === 'Enter' && addPreservedWord()}
+      />
+      <button
+        on:click={addPreservedWord}
+        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-r-md focus:outline-none focus:shadow-outline"
+      >
+        Toevoegen
+      </button>
+    </div>
+
+    <!-- Toggle for default words -->
+    <div class="mb-4 flex items-center gap-2">
+      <div class="flex items-center">
+        <button 
+          type="button"
+          class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 {useDefaultWords ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-600'}"
+          role="switch"
+          aria-checked={useDefaultWords}
+          on:click={() => useDefaultWords = !useDefaultWords}
+        >
+          <span 
+            class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out {useDefaultWords ? 'translate-x-5' : 'translate-x-0'}"
+          />
+        </button>
+      </div>
+      <span class="text-sm text-gray-700 dark:text-gray-300">
+        Standaard niet te veranderen woorden (Bodembeleid, Subsidie, etc.)
+      </span>
+    </div>
+
+    <!-- List of preserved words -->
+    <div class="max-h-[300px] overflow-y-auto border border-gray-300 rounded-md p-2 bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
+      <div class="flex flex-wrap gap-2">
+        {#each preservedWords as word}
+          <div class="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-2 py-1 rounded-md flex items-center">
+            <span>{word}</span>
+            <button 
+              on:click={() => removePreservedWord(word)}
+              class="ml-2 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-200 focus:outline-none"
+            >
+              ×
+            </button>
+          </div>
+        {/each}
+      </div>
+      {#if preservedWords.length === 0}
+        <div class="text-center text-gray-500 dark:text-gray-400 py-4">
+          Geen woorden geselecteerd. Voeg woorden toe die niet vereenvoudigd mogen worden.
+        </div>
+      {/if}
+    </div>
+
+    <div class="mt-4 flex justify-end">
+      <button
+        on:click={() => showPreservedWordsModal = false}
+        class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium py-1 px-3 rounded focus:outline-none focus:shadow-outline"
+      >
+        Sluiten
+      </button>
+    </div>
+  </div>
+</Modal>
+
+<!-- New modal for app information -->
+<Modal
+  bind:show={showInfoModal}
+  size="md"
+  containerClassName="p-0"
+>
+  <div class="p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-xl font-bold text-gray-800 dark:text-white">
+        Over de B1-taalniveau Vereenvoudiger
+      </h2>
+      <button
+        on:click={() => showInfoModal = false}
+        class="text-gray-400 hover:text-gray-500 focus:outline-none"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+    
+    <div class="space-y-4 text-gray-700 dark:text-gray-300">
+      <p>
+        De B1-taalniveau Vereenvoudiger helpt je om complexe teksten naar eenvoudigere taal om te zetten, zodat ze beter te begrijpen zijn voor een breder publiek.
+      </p>
+      <h3 class="text-lg font-medium text-gray-800 dark:text-white mt-4">Wat is B1-taalniveau?</h3>
+      <p>
+        B1-taalniveau is een taalvaardigheidsniveau volgens het Europees Referentiekader (ERK). Teksten op B1-niveau:
+      </p>
+      <ul class="list-disc pl-5 space-y-1">
+        <li>Gebruiken eenvoudige, alledaagse woorden</li>
+        <li>Hebben kortere zinnen (15-20 woorden per zin)</li>
+        <li>Vermijden moeilijke zinsconstructies en jargon</li>
+        <li>Zijn concreet en direct</li>
+      </ul>
+      <h3 class="text-lg font-medium text-gray-800 dark:text-white mt-4">Hoe werkt het?</h3>
+      <ol class="list-decimal pl-5 space-y-1">
+        <li>Voer je tekst in of upload een document (Word, PDF, TXT of RTF)</li>
+        <li>Kies welke woorden niet vereenvoudigd mogen worden (optioneel)</li>
+        <li>Klik op de "Vereenvoudig" knop</li>
+        <li>De AI zal je tekst omzetten naar B1-taalniveau</li>
+      </ol>
+      <h3 class="text-lg font-medium text-gray-800 dark:text-white mt-4">Tips voor betere resultaten</h3>
+      <ul class="list-disc pl-5 space-y-1">
+        <li>Voeg vaktermen en organisatienamen toe aan "Woorden die niet vereenvoudigd worden"</li>
+        <li>Controleer de vereenvoudigde tekst altijd op juistheid</li>
+        <li>Voor langere teksten kun je beter stukken apart invoeren</li>
+      </ul>
+    </div>
+    <div class="mt-6 flex justify-end">
+      <button
+        on:click={() => showInfoModal = false}
+        class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium py-1 px-3 rounded focus:outline-none focus:shadow-outline"
+      >
+        Sluiten
+      </button>
+    </div>
+  </div>
+</Modal>
+
 <style>
-  html, body, #app, .root-vfill { height: 100%; min-height: 100vh; margin: 0; }
-  .root-vfill { min-height: 100vh; height: 100vh; background: #f6f8fa; }
-  .maxwidthbox { max-width: 1200px; margin: 0 auto; background: #fff; border-radius: 18px; box-shadow:0 4px 24px #0002; padding:2.8rem 2rem; height: 100%; display: flex; flex-direction: column; }
-  .title { font-size: 2.1rem; font-weight: 700; color: #20326a; margin-bottom: 1.6rem;}
-  .row { display: flex; justify-content: space-between; gap:1.5em; }
-  .label {font-size:1rem; font-weight:500;}
-  .settingsrow { margin-bottom: 0.6rem;}
-  select, input[type="text"] { font-size: 1.01rem; border: 1px solid #b1b7ce; border-radius: 7px; padding:0.45em 0.7em;}
-  .alert-error { color: #c0392b; background: #fde8e9; border: 1px solid #e17055;
-    border-radius: 7px; padding: 1em 1.2em; font-size: 1rem; margin: 0.7em 0;}
-  .presblock {margin-bottom:1.2rem;}
-  .pres-controls {display:flex; flex-wrap:wrap; gap:0.5em; align-items:center; margin-bottom:0.3em;}
-  .pres-controls input[type="text"] {width:14em;}
-  .presaddbtn {border-radius:5px; background:#dbeafe; color:#0c3964; border:none; padding:0.35em 0.95em;}
-  .presaddbtn:hover { background: #bbcefa;}
-  .checkbox { margin-left: 0.7em; font-size:.98em;}
-  .preserved-tags-scroll {max-height: 62px; min-height:34px; overflow-x: hidden; overflow-y:auto; padding:0.4em 0.2em; display:flex; flex-wrap:wrap; gap:0.3em;}
-  .tag { background:#e0f2fe; color:#0c3964; border-radius:4px; padding:0.17em 0.6em 0.17em 0.4em; font-size:0.98em; margin-bottom:2px; display:inline-flex; align-items:center;}
-  .tag-x { margin-left:0.23em;background:none;border:none;color:#2563eb;font-size:1.13em;font-weight:bold;cursor:pointer;}
-  .tag-x:hover{color:#c0392b;}
-  .mainflexfill { flex: 1 1 0; display: flex; flex-direction: row; gap: 2.5em; min-height:0; }
-  .contentbox.tallbox { flex:1 1 0; display: flex; flex-direction:column; min-width:0; background:#f9fbfe; border-radius: 12px; border: 1.5px solid #dbeafe; padding: 1.2em 1em; position:relative; min-height:0; }
-  .input-label {display:block;margin-bottom:.4em;font-size:1em; font-weight:600; color:#26336a;}
-  .vfill { flex: 1 1 0; min-height:0;}
-  .textarea-holder, .outputshow { display: flex; flex-direction: column; min-height: 0; height: 100%; max-height: 100%; }
-  .textboxarea { width: 100%; flex: 1 1 0; min-height:0; max-height:100%; border: none; background: transparent; color: #223; font-size: 1.03em; font-family: inherit; resize: none; }
-  .outputshow { white-space: pre-wrap; background: transparent; overflow-y: auto; }
-  .input-info, .output-info { font-size:0.91em;color:#7b98b2;margin-top:0.16em;}
-  .output-placeholder { color: #a5a8be; }
-  .fileuploadbtn { background:#ceedfd; color:#1d3560; border:none; border-radius:5px;padding:0.38em 0.9em; font-size:1em; margin-bottom:0.31em; display:flex;align-items:center;gap:0.5em;cursor:pointer;margin-top:0;}
-  .fileuploadbtn svg {vertical-align: middle;}
-  .fileuploadbtn:disabled {filter: grayscale(50%);}
-  .uploadinvis {display:none;}
-  .draghint { color:#788ba7; font-size:.92em; display:block; margin-bottom:0.19em;}
-  .drop-highlight { box-shadow:0 0 12px #4ec8f7c0 inset; border-color:#34bbe6;}
-  .footerrow.vfooter {
-    margin-top: 0;
-    margin-bottom: 0;
-    min-height: 87px;
-    display: flex; flex-direction: column; gap: 0.16em; justify-content: flex-end;
-    background: transparent;
-    width:100%;
-  }
-  .progressbar-container { width:100%; height:14px; background:#e8e8fc; border-radius:8px;overflow:hidden;}
-  .progressbar-bar {height:14px;background:#2563eb;border-radius:8px;transition:width .17s;}
-  .progressbarlabel { font-size:.96em; color: #344388; min-height: 1.4em;}
-  .flash { animation:flashkey .95s;}
-  @keyframes flashkey {0%{box-shadow:0 0 0 #98b8f6}39%{box-shadow:0 0 32px #8fd6fe;}70%{box-shadow:0 0 0 #9fd8fd;}100%{box-shadow:0 0 0 #9fd8fd;}}
-  .translatecol { display: flex; flex-direction: column; align-items: center; justify-content: center;
-    min-width:66px;max-width:72px; padding: 0 6px;}
-  .vl-btn {
-    background:#fff;box-shadow:0 6px 18px #3b82f652; border-radius:50%; border:none; width:58px; height:58px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition: box-shadow 0.19s;
-  }
-  .vl-btn:hover { box-shadow:0 6px 30px #2563eb33;}
-  .vl-btn:disabled { opacity:.65; filter: grayscale(80%);}
-  .busy { color:#2563eb; font-style:italic;}
-  .spinner {
-    border: 4px solid #e3f2fd;
-    border-top: 4px solid #2563eb;
+  /* Loading spinner */
+  .loading-spinner {
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
-    width: 32px;
-    height: 32px;
-    animation: spin .8s linear infinite;
-    margin: 0 auto;
+    border: 3px solid rgba(59, 130, 246, 0.1);
+    border-top-color: #3b82f6;
+    animation: spin 1s linear infinite;
   }
+
   @keyframes spin {
-    0% {transform:rotate(0deg);}
-    100% {transform:rotate(360deg);}
+    to { transform: rotate(360deg); }
   }
-  .copybtn {
-    font-size:0.94em;background:#e5eafd; color:#1d3560; padding:0.36em 0.65em; border:none; border-radius: 5px; margin-top:0.6em; cursor:pointer;
-    transition:background .15s;
+  
+  /* Output strong elements */
+  :global(#output strong) {
+    font-weight: 700;
+    color: inherit;
   }
-  .copybtn:hover {background:#bfd4fa;}
-  :global(.outputshow strong) {
-    font-weight:700;color:#18377f;
+
+  /* Flash animation */
+  @keyframes flash {
+    0% {
+      background-color: rgba(59, 130, 246, 0);
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    }
+    15% {
+      background-color: rgba(59, 130, 246, 0.2);
+      transform: scale(1.02);
+      box-shadow: 0 0 30px 15px rgba(96, 165, 250, 0.3),
+                 0 0 0 30px rgba(96, 165, 250, 0.1),
+                 inset 0 0 15px rgba(255, 255, 255, 0.4);
+    }
+    30% {
+      background-color: rgba(59, 130, 246, 0.1);
+      transform: scale(1);
+      box-shadow: 0 0 50px 20px rgba(96, 165, 250, 0.1),
+                 0 0 0 40px rgba(96, 165, 250, 0),
+                 inset 0 0 20px rgba(255, 255, 255, 0.2);
+    }
+    100% {
+      background-color: rgba(59, 130, 246, 0);
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    }
   }
-  @media(max-width:1080px){.maxwidthbox{max-width:98vw;padding:1.5em 0.5em;}.mainflexfill{gap:1.1em;}}
-  @media(max-width:820px){.mainflexfill{flex-direction:column;gap:1.6em;}.translatecol{flex-direction:row;margin-bottom:1em;}}
-  @media(max-width:600px){
-    .maxwidthbox{padding:1em 0.2em;}
-    .settingsrow{flex-direction:column;gap:0.2em;}
-    .pres-controls{flex-direction:column;gap:0.2em;}
-    .mainflexfill{flex-direction:column;}
-    .contentbox.tallbox {height: 420px; min-height: 300px; max-height:600px;}
+
+  :global(.flash-animation) {
+    animation: flash 1.0s cubic-bezier(0.4, 0, 0.2, 1);
+    border-color: rgba(96, 165, 250, 0.8);
+    position: relative;
+  }
+
+  /* Optional: Style for the progress text during loading */
+  .progress-text {
+    font-variant-numeric: tabular-nums; /* Keeps numbers aligned */
   }
 </style>
