@@ -82,6 +82,15 @@
     } catch (err) {
       console.error('Error loading model:', err);
     }
+
+    // Show info modal on first visit
+    if (browser) {
+      const tutorialShown = localStorage.getItem('b1TutorialShown');
+      if (!tutorialShown) {
+        showInfoModal = true;
+        localStorage.setItem('b1TutorialShown', 'true');
+      }
+    }
   });
 
   // Improved mechanism to detect model updates
