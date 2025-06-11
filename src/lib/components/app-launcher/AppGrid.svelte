@@ -10,14 +10,14 @@
         permission: (user) => user?.role === 'admin' || user?.permissions?.appLauncher?.b1_taalniveau
       },
       {
-        name: 'Subsidies',
+        name: 'Subsidie extractie',
         icon: '💰',
         href: '/app-launcher/subsidies',
         permission: (user) => user?.role === 'admin' || user?.permissions?.appLauncher?.subsidies
       },
       {
-        name: 'Transcriptie',
-        icon: '🎤',
+        name: 'Subsidie beoordeling',
+        icon: '📊',
         href: '/app-launcher/subsidies2',
         permission: (user) => user?.role === 'admin' || user?.permissions?.appLauncher?.transcriptie
       },
