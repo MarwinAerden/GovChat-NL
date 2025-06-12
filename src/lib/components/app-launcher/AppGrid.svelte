@@ -4,23 +4,11 @@
     // Lijst van alle beschikbare apps met permissielogica
     let apps = [
       {
-        name: 'B1 Taalniveau',
+        name: 'Taal-Versimpelaar',
         icon: '🔤',
         href: '/app-launcher/b1-taalniveau',
         permission: (user) => user?.role === 'admin' || user?.permissions?.appLauncher?.b1_taalniveau
-      },
-      {
-        name: 'Subsidies',
-        icon: '💰',
-        href: '/app-launcher/subsidies',
-        permission: (user) => user?.role === 'admin' || user?.permissions?.appLauncher?.subsidies
-      },
-      {
-        name: 'Transcriptie',
-        icon: '🎤',
-        href: '/app-launcher/transcriptie',
-        permission: (user) => user?.role === 'admin' || user?.permissions?.appLauncher?.transcriptie
-      },
+      }
     ];
   
     // Filter alleen de apps die zichtbaar moeten zijn voor deze gebruiker
