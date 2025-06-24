@@ -45,6 +45,9 @@
     let isLoadingReport: boolean = false;
     let reportError: string | null = null;
 
+    // Uitklapbare criteria
+    let showCriteria: boolean = false;
+
     // Use filtered models from store instead of manual filtering
     $: subsidieAccessibleModels = $filteredModels;
 
@@ -364,15 +367,16 @@
 </script>
 
 <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
-    <h2 class="text-2xl font-bold text-gray-800 dark:text-white text-center mb-6">
-        Subsidie Beoordeling
-    </h2>
-
     {#if selectedDataFromPart1}
         <div class="space-y-4">
-            <h3 class="text-lg font-semibold text-gray-800 dark:text-white">
-                Gebaseerd op: "{selectedDataFromPart1.name}"
-            </h3>
+            <div class="text-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-2">
+                    Subsidie Beoordeling
+                </h2>
+                <h3 class="text-lg font-medium text-gray-600 dark:text-gray-300">
+                    Gebaseerd op: "{selectedDataFromPart1.name}"
+                </h3>
+            </div>
 
             {#if selectedDataFromPart1.summary}
                 <div class="border border-gray-300 rounded-md p-3 bg-gray-50 dark:bg-gray-700">
@@ -382,20 +386,39 @@
             {/if}
 
             <div class="border border-gray-300 rounded-md p-3 bg-gray-50 dark:bg-gray-700">
-                 <h4 class="font-medium mb-1">Criteria (uit Deel 1):</h4>
-                 {#if selectedDataFromPart1?.criteria?.length > 0}
-                    <div class="max-h-40 overflow-y-auto">
-                        <ul class="list-disc list-inside space-y-1 text-sm text-gray-600 dark:text-gray-300">
-                            {#each selectedDataFromPart1.criteria as criterion (criterion.id)}
-                                <li>{criterion.text}</li>
-                            {/each}
-                        </ul>
+                <button
+                    type="button"
+                    on:click={() => showCriteria = !showCriteria}
+                    class="w-full flex items-center justify-between text-left focus:outline-none"
+                >
+                    <h4 class="font-medium">Criteria (uit Deel 1): {selectedDataFromPart1?.criteria?.length || 0} items</h4>
+                    <svg 
+                        class="w-5 h-5 transform transition-transform duration-200 {showCriteria ? 'rotate-180' : ''}" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                    >
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                    </svg>
+                </button>
+                
+                {#if showCriteria}
+                    <div class="mt-3">
+                        {#if selectedDataFromPart1?.criteria?.length > 0}
+                            <div class="max-h-60 overflow-y-auto">
+                                <ul class="list-disc list-inside space-y-1 text-sm text-gray-600 dark:text-gray-300">
+                                    {#each selectedDataFromPart1.criteria as criterion (criterion.id)}
+                                        <li>{criterion.text}</li>
+                                    {/each}
+                                </ul>
+                            </div>
+                        {:else}
+                            <p class="text-sm text-gray-500 dark:text-gray-400">
+                                Geen criteria gevonden. (Lengte: {selectedDataFromPart1?.criteria?.length || 0})
+                            </p>
+                        {/if}
                     </div>
-                 {:else}
-                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                        Geen criteria gevonden. (Lengte: {selectedDataFromPart1?.criteria?.length || 0})
-                    </p>
-                 {/if}
+                {/if}
             </div>
 
             <!-- Subsidieaanvraag invoer -->

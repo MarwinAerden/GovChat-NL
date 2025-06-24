@@ -489,30 +489,18 @@
             <p class="text-sm text-blue-700 dark:text-blue-300"><strong>Aantal criteria:</strong> {$subsidyStore.selectedOutput.criteria.length}</p>
         
             <!-- Nieuwe knop om selectie op te slaan naar backend -->
-            <div class="mt-4 flex justify-end">
-                <button
+            <div class="mt-4 flex justify-end">                <button
                     type="button"
                     on:click={() => {
                         // Ga direct naar deel 2
                         window.location.href = '/app-launcher/subsidies2';
                     }}
-                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2 mr-2"
+                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                     </svg>
                     Ga naar beoordelingstool
-                </button>
-                
-                <button
-                    type="button"
-                    on:click={handleSaveSelection}
-                    class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                    </svg>
-                    Maak kopie van selectie
                 </button>
             </div>
         </div>
