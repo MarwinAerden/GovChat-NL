@@ -170,7 +170,7 @@
 
     onMount(() => {
         // Optioneel: Log de data wanneer het component mount
-        console.log("Data ontvangen van Deel 1:", selectedDataFromPart1);
+        console.log("Data ontvangen van Admin:", selectedDataFromPart1);
 
         // Cleanup de subscription wanneer het component unmount
         return () => unsubscribe();
@@ -208,7 +208,7 @@
                 selectedDataFromPart1 = lastSelection;
             } else {
                 // Geen selectie? Toon een melding
-                toast.info("Geen criteria selectie gevonden. Ga naar deel 1 om criteria te selecteren.");
+                toast.info("Geen criteria selectie gevonden. Ga naar Subsidie Admin Paneel om criteria te selecteren.");
             }
         } catch (error) {
             console.error("Fout bij laden van opgeslagen subsidiecriteria:", error);
@@ -472,7 +472,7 @@
 
             {#if selectedDataFromPart1.summary}
                 <div class="border border-gray-300 rounded-md p-3 bg-gray-50 dark:bg-gray-700">
-                    <h4 class="font-medium mb-1">Samenvatting (uit Deel 1):</h4>
+                    <h4 class="font-medium mb-1">Samenvatting van de regeling:</h4>
                     <p class="text-sm text-gray-600 dark:text-gray-300">{selectedDataFromPart1.summary}</p>
                 </div>
             {/if}
@@ -483,7 +483,7 @@
                     on:click={() => showCriteria = !showCriteria}
                     class="w-full flex items-center justify-between text-left focus:outline-none"
                 >
-                    <h4 class="font-medium">Criteria (uit Deel 1): {selectedDataFromPart1?.criteria?.length || 0} items</h4>
+                    <h4 class="font-medium">Criteria uit de regeling: {selectedDataFromPart1?.criteria?.length || 0} items</h4>
                     <svg 
                         class="w-5 h-5 transform transition-transform duration-200 {showCriteria ? 'rotate-180' : ''}" 
                         fill="none" 
@@ -516,13 +516,13 @@
             <!-- Subsidieaanvraag invoer -->
             <div class="mt-6 bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-300 dark:border-gray-600">
                 <h4 class="text-lg font-semibold text-gray-800 dark:text-white mb-3">
-                    Beoordeel uw subsidieaanvraag
+                    Stap 1: Subsidieaanvraag invoeren
                 </h4>
                 
                 <div class="space-y-4">
                     <div>
                         <label for="application-text" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Uw subsidieaanvraag tekst (of upload een bestand)
+                            Subsidie aanvraag📎
                         </label>
                         <div class="relative">
                             {#if isProcessingFile}
@@ -533,7 +533,7 @@
                             <textarea
                                 id="application-text"
                                 bind:value={applicationText}
-                                placeholder="Voer hier uw subsidieaanvraag in om te beoordelen tegen de geselecteerde criteria..."
+                                placeholder="Upload hier uw subsidieaanvraag of plak handmatig de tekst er in..."
                                 rows="8"
                                 disabled={isLoading || isProcessingFile}
                                 class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 font-[system-ui] {isFlashing ? 'flash-animation' : ''}"
@@ -767,9 +767,9 @@
         </div>
     {:else}
         <div class="text-center text-gray-500 dark:text-gray-400 py-10">
-            <p>Selecteer alstublieft eerst een opgeslagen resultaat in Deel 1.</p>
+            <p>Selecteer alstublieft eerst een opgeslagen resultaat in het Subsidie Admin Paneel of contacteer een Beheerder.</p>
             <!-- Optioneel: Link terug naar deel 1 -->
-            <a href="/app-launcher/subsidies" class="text-blue-600 hover:underline mt-2 inline-block">Ga naar Deel 1</a>
+            <a href="/app-launcher/subsidies" class="text-blue-600 hover:underline mt-2 inline-block">Ga naar Admin Panel</a>
         </div>    {/if}
 </div>
 
