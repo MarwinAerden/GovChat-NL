@@ -14,6 +14,13 @@
     // Aanvraag tekst input
     let applicationText: string = '';
     
+    // File upload gerelateerde variabelen
+    let fileInput: HTMLInputElement;
+    let isProcessingFile = false;
+    let isFlashing = false;
+    let fileProcessingProgress = 0;
+    let fileProcessingInterval: ReturnType<typeof setInterval> | null = null;
+    
     // Beoordeling resultaten
     let assessmentResults: Record<string, {Criterium: string, Score: string, Toelichting: string}> | null = null;
     
@@ -70,6 +77,91 @@
         
         // Fallback to hardcoded model if no subsidie models available
         return "openai/gpt-4o";
+    }
+
+    async function handleFileUpload(event: Event | DragEvent) {
+        let file: File | null = null;
+
+        if (event instanceof DragEvent && event.dataTransfer?.files) {
+            file = event.dataTransfer.files[0];
+        } else if (event.target instanceof HTMLInputElement && event.target.files) {
+            file = event.target.files[0];
+        }
+
+        if (!file) return;
+
+        if (!file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
+            toast.error('Alleen Word, PDF, TXT of RTF bestanden zijn toegestaan');
+            return;
+        }
+
+        isProcessingFile = true;
+        isFlashing = true;
+        fileProcessingProgress = 0;
+        if (fileProcessingInterval) clearInterval(fileProcessingInterval);
+
+        fileProcessingInterval = setInterval(() => {
+            if (fileProcessingProgress < 99) {
+                fileProcessingProgress += 1;
+            } else {
+                if (fileProcessingInterval) clearInterval(fileProcessingInterval);
+                fileProcessingInterval = null;
+            }
+        }, 30);
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const uploadResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: formData
+            });
+
+            if (!uploadResponse.ok) {
+                const errorData = await uploadResponse.json().catch(() => ({ detail: 'Fout bij uploaden bestand' }));
+                throw new Error(errorData.detail || 'Fout bij uploaden bestand');
+            }
+
+            const uploadData = await uploadResponse.json();
+
+            if (uploadData.content) {
+                applicationText = uploadData.content;
+            } else if (uploadData.id) {
+                const contentResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files/${uploadData.id}/data/content`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                if (!contentResponse.ok) {
+                    throw new Error('Fout bij ophalen bestandsinhoud na upload');
+                }
+                const textData = await contentResponse.json();
+                applicationText = textData.content;
+            } else {
+                throw new Error('Onbekend antwoordformaat van upload endpoint');
+            }
+
+            toast.success('Bestand succesvol geüpload en inhoud ingevoegd.');
+
+        } catch (err: any) {
+            console.error('Error processing file:', err);
+            toast.error(`Fout bij verwerken bestand: ${err.message}`);
+            applicationText = '';
+        } finally {
+            if (fileProcessingInterval) clearInterval(fileProcessingInterval);
+            fileProcessingInterval = null;
+            fileProcessingProgress = 100;
+            isProcessingFile = false;
+
+            if (fileInput) fileInput.value = '';
+
+            setTimeout(() => {
+                isFlashing = false;
+            }, 1000);
+        }
     }
 
     const unsubscribe = subsidyStore.subscribe(store => {
@@ -430,93 +522,114 @@
                 <div class="space-y-4">
                     <div>
                         <label for="application-text" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Uw subsidieaanvraag tekst
+                            Uw subsidieaanvraag tekst (of upload een bestand)
                         </label>
-                        <textarea
-                            id="application-text"
-                            bind:value={applicationText}
-                            placeholder="Voer hier uw subsidieaanvraag in om te beoordelen tegen de geselecteerde criteria..."
-                            rows="8"
-                            disabled={isLoading}
-                            class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
-                        ></textarea>
-                    </div>
-
-
-                    <div class="flex space-x-2 mt-3">
-                        <button
-                            type="button"
-                            on:click={handleAssessmentSubmit}
-                            disabled={isLoading || !applicationText.trim() || !$settings?.models?.[0]}
-                            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                        >
-                            {#if isLoading}
-                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Beoordeling Verwerken...
-                            {:else}
-                                Beoordeel Aanvraag
+                        <div class="relative">
+                            {#if isProcessingFile}
+                                <div class="progress-line absolute inset-x-0 top-0 h-1 pointer-events-none overflow-hidden z-10">
+                                    <div class="line"></div>
+                                </div>
                             {/if}
-                        </button>
-                        
-                        <button
-                            type="button"
-                            on:click={handleSummaryRequest}
-                            disabled={isLoadingSummary || !applicationText.trim()}
-                            class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                        >
-                            {#if isLoadingSummary}
-                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Genereren...
-                            {:else}
-                                Genereer Samenvatting
-                            {/if}
-                        </button>
-                    </div>
-
-                    <div class="mt-4">
-                        <button
-                            type="button"
-                            on:click={handleReportGeneration}
-                            disabled={isLoadingReport || !assessmentResults || !summaryResult}
-                            class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                        >
-                            {#if isLoadingReport}
-                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Rapport Genereren...
-                            {:else}
-                                Genereer Eindrapport
-                            {/if}
-                        </button>
-                    </div>
-
-                    <div class="mt-4">
+                            <textarea
+                                id="application-text"
+                                bind:value={applicationText}
+                                placeholder="Voer hier uw subsidieaanvraag in om te beoordelen tegen de geselecteerde criteria..."
+                                rows="8"
+                                disabled={isLoading || isProcessingFile}
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 font-[system-ui] {isFlashing ? 'flash-animation' : ''}"
+                                on:dragover|preventDefault
+                                on:drop|preventDefault={handleFileUpload}
+                            ></textarea>
+                            <div class="mt-2">
+                                {#if isProcessingFile || fileProcessingProgress === 100}
+                                    <div class="flex items-center gap-2" transition:fade={{ duration: 150 }}>
+                                        <div class="flex-grow bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                            <div
+                                                class="bg-blue-600 h-2 rounded-full transition-all duration-150 ease-linear"
+                                                style="width: {fileProcessingProgress}%"
+                                            ></div>
+                                        </div>
+                                        <span class="text-sm text-gray-600 dark:text-gray-400 min-w-[3rem] text-right">{fileProcessingProgress}%</span>
+                                    </div>
+                                {/if}
+                                <div class="mt-2 flex items-center justify-between gap-2">
+                                    <div class="flex items-center gap-2">
+                                        <input
+                                            type="file"
+                                            accept=".doc,.docx,.pdf,.txt,.rtf"
+                                            class="hidden"
+                                            bind:this={fileInput}
+                                            on:change={handleFileUpload}
+                                        />
+                                        <button
+                                            type="button"
+                                            on:click={() => fileInput.click()}
+                                            disabled={isProcessingFile || isLoading}
+                                            class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium py-1 px-3 rounded focus:outline-none focus:shadow-outline flex items-center gap-2 disabled:opacity-50"
+                                        >
+                                            {#if isProcessingFile}
+                                                <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                                <span>Uploaden...</span>
+                                            {:else if !isProcessingFile && fileProcessingProgress === 100}
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                                <span>Bestand geüpload</span>
+                                            {:else}
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3 3m0 0l-3-3m3 3V8" /></svg>
+                                                <span>Upload bestand</span>
+                                            {/if}
+                                        </button>
+                                    </div>
+                                    <span class="text-sm text-gray-500 dark:text-gray-400 text-right">
+                                        of sleep bestand hierheen<br>(Word, PDF, TXT, RTF)
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>                    <!-- Hoofdknop voor complete beoordeling -->
+                    <div class="mt-3">
                         <button
                             type="button"
                             on:click={handleCompleteAssessment}
-                            disabled={isLoading || isLoadingSummary || isLoadingReport || !applicationText.trim() || !selectedDataFromPart1?.criteria.length}
-                            class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                            disabled={isLoading || isLoadingSummary || isLoadingReport || isProcessingFile || !applicationText.trim() || !selectedDataFromPart1?.criteria.length}
+                            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-lg shadow-lg transition-all duration-200"
                         >
                             {#if isLoading || isLoadingSummary || isLoadingReport}
-                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <svg class="animate-spin -ml-1 mr-3 h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 718-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
-                                Volledige Beoordeling...
+                                Volledige Beoordeling Uitvoeren...
+                            {:else if isProcessingFile}
+                                Bestand verwerken...
                             {:else}
-                                Voer Volledige Beoordeling Uit
+                                🐶 Start Beoordeling
                             {/if}
                         </button>
                     </div>
-                </div>
+
+                    <!-- Refresh knop om resultaten te wissen -->
+                    {#if assessmentResults || summaryResult || reportResult}
+                        <div class="mt-3">
+                            <button
+                                type="button"
+                                on:click={() => {
+                                    assessmentResults = null;
+                                    summaryResult = null;
+                                    reportResult = null;
+                                    error = null;
+                                    summaryError = null;
+                                    reportError = null;
+                                    toast.success('Resultaten gewist - klaar voor nieuwe beoordeling');
+                                }}
+                                class="w-full bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center justify-center"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Nieuwe Beoordeling (Wis Resultaten)
+                            </button>
+                        </div>
+                    {/if}                </div>
             </div>
 
             {#if error}
@@ -657,28 +770,35 @@
             <p>Selecteer alstublieft eerst een opgeslagen resultaat in Deel 1.</p>
             <!-- Optioneel: Link terug naar deel 1 -->
             <a href="/app-launcher/subsidies" class="text-blue-600 hover:underline mt-2 inline-block">Ga naar Deel 1</a>
-        </div>
-    {/if}
-
-    <!-- Nieuwe knop om standaard criteria te verversen -->
-    <div class="mt-6">
-        <button
-            type="button"
-            on:click={async () => {
-                const globalSelection = await loadGlobalSelection();
-                if (globalSelection) {
-                    toast.success(`Nieuwe standaard criteria "${globalSelection.name}" geladen`);
-                } else {
-                    toast.info("Er zijn geen standaard criteria ingesteld");
-                }
-            }}
-            class="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded"
-        >
-            Ververs standaard criteria
-        </button>
-    </div>
+        </div>    {/if}
 </div>
 
 <style>
-    /* Add any specific styles for subsidies2 here */
+  .progress-line {
+    background-color: rgba(59, 130, 246, 0.1);
+  }
+  .progress-line .line {
+    height: 100%;
+    background-color: #3b82f6;
+    animation: progress 2s infinite;
+    width: 100%;
+    transform-origin: left;
+  }
+  @keyframes progress {
+    0% { transform: translateX(-100%); }
+    50% { transform: translateX(0); }
+    100% { transform: translateX(100%); }
+  }
+
+  @keyframes flash {
+    0% { background-color: rgba(59, 130, 246, 0); box-shadow: 0 0 0 0 rgba(96, 165, 250, 0); }
+    15% { background-color: rgba(59, 130, 246, 0.2); box-shadow: 0 0 30px 15px rgba(96, 165, 250, 0.3), 0 0 0 30px rgba(96, 165, 250, 0.1), inset 0 0 15px rgba(255, 255, 255, 0.4); }
+    30% { background-color: rgba(59, 130, 246, 0.1); box-shadow: 0 0 50px 20px rgba(96, 165, 250, 0.1), 0 0 0 40px rgba(96, 165, 250, 0), inset 0 0 20px rgba(255, 255, 255, 0.2); }
+    100% { background-color: rgba(59, 130, 246, 0); box-shadow: 0 0 0 0 rgba(96, 165, 250, 0); }
+  }
+  :global(.flash-animation) {
+    animation: flash 1.0s cubic-bezier(0.4, 0, 0.2, 1);
+    border-color: rgba(96, 165, 250, 0.8);
+    position: relative;
+  }
 </style>

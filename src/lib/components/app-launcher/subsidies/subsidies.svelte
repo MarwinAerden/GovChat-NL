@@ -409,11 +409,10 @@
                                     Opgeslagen: {savedOutput.timestamp?.toLocaleString() ?? 'Onbekend'}
                                     ({savedOutput.criteria.length} criteria)
                                 </p>
-                            </div>
-                            <button
+                            </div>                            <button
                                 type="button"
                                 on:click={() => selectOutput(savedOutput)}
-                                class="ml-4 px-3 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-offset-1 {$subsidyStore.selectedOutput?.savedId === savedOutput.savedId ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500' : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500 focus:ring-gray-400'}"
+                                class="ml-4 px-3 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-offset-1 whitespace-nowrap min-w-[120px] {$subsidyStore.selectedOutput?.savedId === savedOutput.savedId ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500' : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500 focus:ring-gray-400'}"
                                 title="Selecteer dit resultaat om te gebruiken"
                             >
                                 {$subsidyStore.selectedOutput?.savedId === savedOutput.savedId ? 'Geselecteerd' : 'Selecteer'}
@@ -486,18 +485,17 @@
             {#if $subsidyStore.selectedOutput.summary}
                 <p class="text-sm text-blue-700 dark:text-blue-300 mb-2"><strong>Samenvatting:</strong> {$subsidyStore.selectedOutput.summary}</p>
             {/if}
-            <p class="text-sm text-blue-700 dark:text-blue-300"><strong>Aantal criteria:</strong> {$subsidyStore.selectedOutput.criteria.length}</p>
-        
-            <!-- Nieuwe knop om selectie op te slaan naar backend -->
-            <div class="mt-4 flex justify-end">                <button
+            <p class="text-sm text-blue-700 dark:text-blue-300"><strong>Aantal criteria:</strong> {$subsidyStore.selectedOutput.criteria.length}</p>            <!-- Nieuwe knop om selectie op te slaan naar backend -->
+            <div class="mt-4 flex justify-end">
+                <button
                     type="button"
                     on:click={() => {
                         // Ga direct naar deel 2
                         window.location.href = '/app-launcher/subsidies2';
                     }}
-                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
+                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2 whitespace-nowrap"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                     </svg>
                     Ga naar beoordelingstool

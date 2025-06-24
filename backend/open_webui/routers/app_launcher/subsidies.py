@@ -618,6 +618,11 @@ async def handle_subsidy_report(
     """
     Genereert een eindrapport door de samenvatting en beoordelingsresultaten te combineren.
     """
+    print(f"DEBUG: handle_subsidy_report aangeroepen")
+    print(f"DEBUG: assessment_results type: {type(report_input.assessment_results)}")
+    print(f"DEBUG: assessment_results inhoud: {report_input.assessment_results}")
+    print(f"DEBUG: summary_result type: {type(report_input.summary_result)}")
+    
     if not report_input.assessment_results:
         raise HTTPException(status_code=400, detail="Beoordelingsresultaten zijn vereist voor het rapport.")
     if not report_input.summary_result:
@@ -633,13 +638,14 @@ async def handle_subsidy_report(
         
     print(f"Model dat gebruikt wordt voor eindrapport: {model_to_use}")
 
-    DEFAULT_TEMPERATURE = 0.4  # Iets hogere temperatuur voor meer creativiteit in het rapport
-
-    # Bereid de JSON input voor de LLM prompt voor - Met betere foutafhandeling
+    DEFAULT_TEMPERATURE = 0.4  # Iets hogere temperatuur voor meer creativiteit in het rapport    # Bereid de JSON input voor de LLM prompt voor - Met betere foutafhandeling
     summary_formatted = ""
     assessment_formatted = ""
     
     try:
+        print(f"DEBUG: Type van summary_result: {type(report_input.summary_result)}")
+        print(f"DEBUG: Type van assessment_results: {type(report_input.assessment_results)}")
+        
         # Probeer eerst de summary_result als een Python dict te krijgen
         try:
             # In Pydantic v2+ gebruik je model_dump() in plaats van dict()
@@ -650,18 +656,39 @@ async def handle_subsidy_report(
             except AttributeError:
                 summary_dict = dict(report_input.summary_result)
                 
+        print(f"DEBUG: Summary dict: {summary_dict}")
         summary_formatted = json.dumps(summary_dict, ensure_ascii=False)
         
-        # Nu de assessment results
+        # Nu de assessment results - Met betere foutafhandeling
         try:
-            # Assessment results is al een dict
-            assessment_formatted = json.dumps(report_input.assessment_results, ensure_ascii=False)
+            # Assessment results moet een dict zijn van SubsidyAssessmentItem objecten
+            assessment_dict = {}
+            for key, value in report_input.assessment_results.items():
+                if hasattr(value, 'model_dump'):
+                    assessment_dict[key] = value.model_dump()
+                elif hasattr(value, 'dict'):
+                    assessment_dict[key] = value.dict()
+                elif isinstance(value, dict):
+                    assessment_dict[key] = value
+                else:
+                    # Fallback voor onbekende types
+                    assessment_dict[key] = {
+                        "Criterium": getattr(value, 'Criterium', str(value)),
+                        "Score": getattr(value, 'Score', 'Onbekend'),
+                        "Toelichting": getattr(value, 'Toelichting', 'Geen toelichting')
+                    }
+            
+            print(f"DEBUG: Assessment dict: {assessment_dict}")
+            assessment_formatted = json.dumps(assessment_dict, ensure_ascii=False)
         except Exception as e:
             print(f"Fout bij formatteren assessment: {e}")
-            raise HTTPException(status_code=500, detail="Kon de beoordelingsresultaten niet formatteren.")
+            print(f"DEBUG: Assessment results inhoud: {report_input.assessment_results}")
+            raise HTTPException(status_code=500, detail=f"Kon de beoordelingsresultaten niet formatteren: {str(e)}")
         
     except Exception as e:
         print(f"Algemene fout bij het voorbereiden van input data: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Kon de input data niet correct voorbereiden voor het rapport: {str(e)}")
 
     if not summary_formatted or not assessment_formatted:
@@ -785,12 +812,11 @@ async def handle_complete_assessment(
             report_input=report_input,
             user=user
         )
-        
-        # Combineer alle resultaten in één response
+          # Combineer alle resultaten in één response
         return {
             "assessment": assessment_result.assessment,
-            "summary": summary_result.dict(),
-            "report": report_result.dict()
+            "summary": summary_result.model_dump() if hasattr(summary_result, 'model_dump') else summary_result.dict(),
+            "report": report_result.model_dump() if hasattr(report_result, 'model_dump') else report_result.dict()
         }
         
     except Exception as e:
@@ -1079,4 +1105,75 @@ async def get_global_selection(
             "success": False,
             "has_global_selection": False,
             "message": f"Kon globale selectie niet ophalen: {str(e)}"
+        }
+
+@router.post("/debug/test_report", response_model=Dict[str, Any])
+async def test_report_generation(
+    request: Request,
+    user = Depends(get_current_user)
+):
+    """Test endpoint om rapportgeneratie te debuggen"""
+    try:
+        # Maak test data voor de rapportgeneratie
+        test_assessment = {
+            "1": {
+                "Criterium": "Test criterium 1",
+                "Score": "8",
+                "Toelichting": "Dit is een test toelichting"
+            },
+            "2": {
+                "Criterium": "Test criterium 2", 
+                "Score": "5",
+                "Toelichting": "Dit criterium heeft een lagere score"
+            }
+        }
+        
+        test_summary = SubsidySummaryOutput(
+            Aanvrager="Test Aanvrager",
+            Datum_aanvraag="2024-01-01",
+            Datum_evenement="2024-06-01",
+            Bedrag="€10.000",
+            Samenvatting="Test samenvatting van de aanvraag"
+        )
+        
+        # Converteer naar SubsidyAssessmentItem objecten
+        assessment_items = {}
+        for key, value in test_assessment.items():
+            assessment_items[key] = SubsidyAssessmentItem(**value)
+        
+        report_input = SubsidyCombinedReportInput(
+            assessment_results=assessment_items,
+            summary_result=test_summary,
+            model="openai/gpt-4o"
+        )
+        
+        print(f"DEBUG: Test report input created successfully")
+        print(f"DEBUG: Assessment results type: {type(report_input.assessment_results)}")
+        print(f"DEBUG: Summary result type: {type(report_input.summary_result)}")
+        
+        # Probeer het rapport te genereren
+        report_result = await handle_subsidy_report(
+            request=request,
+            report_input=report_input,
+            user=user
+        )
+        
+        return {
+            "success": True,
+            "message": "Test rapport succesvol gegenereerd",
+            "report": report_result.model_dump() if hasattr(report_result, 'model_dump') else report_result.dict(),
+            "test_input": {
+                "assessment": test_assessment,
+                "summary": test_summary.model_dump() if hasattr(test_summary, 'model_dump') else test_summary.dict()
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error in test report generation: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
         }
