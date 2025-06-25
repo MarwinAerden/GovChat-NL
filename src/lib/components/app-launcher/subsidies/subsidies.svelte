@@ -1,5 +1,4 @@
-<script lang="ts">
-    import { WEBUI_BASE_URL } from '$lib/constants';
+<script lang="ts">    import { WEBUI_BASE_URL } from '$lib/constants';
     import { models, settings, user } from '$lib/stores';
     import { filteredModels, currentAppContext, getFirstAvailableAppModel } from '$lib/stores/appModels';
     import { toast } from 'svelte-sonner';
@@ -7,6 +6,11 @@
     import { onMount } from 'svelte';
     import { subsidyStore, fetchSavedOutputs, initializeStore, setSelectedOutput, addSavedOutput, clearSavedOutputs, saveSelection, loadLastSelection, setGlobalSelection, loadGlobalSelection } from '$lib/stores/subsidyStore';
     import type { SubsidyResponse } from '$lib/stores/subsidyStore';
+    import Modal from '$lib/components/common/Modal.svelte';
+    import { browser } from '$app/environment';
+
+    // Modal control variable
+    let showInfoModal = false;
 
     let userInput: string = '';
     let responseData: SubsidyResponse | null = null;
@@ -49,10 +53,18 @@
             if (lastSelection) {
                 console.log("Persoonlijke selectie geladen:", lastSelection.name);
                 toast.success(`Selectie "${lastSelection.name}" geladen`);
-            }
-        } catch (error) {
+            }        } catch (error) {
             console.error("Fout bij laden van selecties:", error);
             toast.error("Kon selecties niet laden");
+        }
+
+        // Show info modal on first visit
+        if (browser) {
+            const tutorialShown = localStorage.getItem('subsidieTutorialShown');
+            if (!tutorialShown) {
+                showInfoModal = true;
+                localStorage.setItem('subsidieTutorialShown', 'true');
+            }
         }
     });
 
@@ -298,11 +310,25 @@
 </script>
 
 <div class="max-w-7xl mx-auto mt-6 space-y-6 px-4">
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
-            <h2 class="text-2xl font-bold text-gray-800 dark:text-white text-center mb-6">
-                Admin Panel Subsidie Criteria
-            </h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">            <div class="flex justify-between items-center mb-6">
+                <div class="flex items-center gap-2">
+                    <h2 class="text-2xl font-bold text-gray-800 dark:text-white">
+                        Admin Panel Subsidie Criteria
+                    </h2>
+                    <!-- Add info button next to the title -->
+                    <button
+                        type="button"
+                        on:click={() => showInfoModal = true}
+                        class="bg-blue-100 hover:bg-blue-200 dark:bg-blue-700 dark:hover:bg-blue-600 text-blue-700 dark:text-blue-200 font-medium py-1.5 px-3 rounded-md focus:outline-none focus:shadow-outline flex items-center gap-1.5"
+                        aria-label="Uitleg over de subsidie criteria tool"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Uitleg</span>
+                    </button>
+                </div>
+            </div>
 
             <form on:submit|preventDefault={handleSubmit} class="space-y-4">
                 <div>
@@ -513,9 +539,89 @@
                     </svg>
                     Ga naar beoordelingstool
                 </button>
-            </div>        </div>
-    {/if}
+            </div>        </div>    {/if}
 </div>
+
+<!-- Info modal voor app uitleg -->
+<Modal
+  bind:show={showInfoModal}
+  size="md"
+  containerClassName="p-0"
+>
+  <div class="p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+        Subsidie Criteria Tool - Handleiding
+      </h3>
+      <button
+        type="button"
+        on:click={() => showInfoModal = false}
+        class="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+      <div class="space-y-4 text-gray-700 dark:text-gray-300">
+      <div>
+        <h4 class="font-semibold text-gray-900 dark:text-white mb-2">🎯 Wat doet deze tool?</h4>
+        <p class="text-sm">
+          Deze <strong>Subsidie Criteria Extractor</strong> analyseert subsidiereglementen en haalt automatisch alle beoordelingscriteria eruit. 
+          Het zorgt ervoor dat u niets vergeet bij het beoordelen van subsidieaanvragen en houdt u aan de regels.
+        </p>
+      </div>
+      
+      <div>
+        <h4 class="font-semibold text-gray-900 dark:text-white mb-2">📋 Stap-voor-stap uitleg:</h4>
+        <ol class="list-decimal list-inside text-sm space-y-2 pl-2">
+          <li><strong>Input:</strong> Voer de volledige subsidieregeling in of upload een document (Word, PDF, TXT, RTF)</li>
+          <li><strong>Analyse:</strong> De AI leest het document en haalt alle toetsingscriteria eruit</li>
+          <li><strong>Opslaan:</strong> Geef het resultaat een duidelijke naam en sla het op</li>
+          <li><strong>Selecteren:</strong> Kies de criteria die u wilt gebruiken en stel deze in als standaard voor alle gebruikers</li>
+          <li><strong>Beoordelen:</strong> Ga naar de beoordelingstool om aanvragen systematisch te toetsen</li>
+        </ol>
+      </div>
+        <div>
+        <h4 class="font-semibold text-gray-900 dark:text-white mb-2">💡 Tips voor het beste resultaat:</h4>
+        <ul class="list-disc list-inside text-sm space-y-1 pl-2">
+          <li><strong>Volledigheid:</strong> Voer de complete regeling in, inclusief alle artikelen en bijlagen</li>
+          <li><strong>Meerdere bestanden:</strong> Als een regeling uit meerdere documenten bestaat, plak deze dan samen in één bestand - het systeem kan slechts één bestand tegelijk verwerken</li>
+          <li><strong>Bestandsformaten:</strong> Word (.doc, .docx), PDF, TXT of RTF bestanden worden ondersteund</li>
+          <li><strong>Naamgeving:</strong> Gebruik duidelijke namen zoals "Evenementensubsidie 2024" of "Sportverenigingen regeling"</li>
+        </ul>
+      </div>
+      
+      <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+        <div class="flex items-start gap-3">
+          <div class="text-blue-500 mt-0.5">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
+              Dit is Stap 1 van het beoordelingsproces
+            </p>
+            <p class="text-xs text-blue-700 dark:text-blue-300">
+              Na het extraheren van criteria gaat u naar de beoordelingstool waar u daadwerkelijke subsidieaanvragen kunt toetsen aan deze criteria.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="mt-6 flex justify-end">
+      <button
+        type="button"
+        on:click={() => showInfoModal = false}
+        class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+      >
+        Begrepen
+      </button>
+    </div>
+  </div>
+</Modal>
 
 <style>
   .progress-line {
