@@ -1,12 +1,16 @@
 <script lang="ts">
     import { WEBUI_BASE_URL } from '$lib/constants';
     import { models, settings } from '$lib/stores';
-    import { filteredModels, currentAppContext, getFirstAvailableAppModel } from '$lib/stores/appModels';
-    import { subsidyStore, fetchSavedOutputs, loadLastSelection, loadGlobalSelection } from '$lib/stores/subsidyStore';
+    import { filteredModels, currentAppContext, getFirstAvailableAppModel } from '$lib/stores/appModels';    import { subsidyStore, fetchSavedOutputs, loadLastSelection, loadGlobalSelection } from '$lib/stores/subsidyStore';
     import type { SubsidyResponse } from '$lib/stores/subsidyStore';
     import { onMount } from 'svelte';
     import { toast } from 'svelte-sonner';
     import { fade } from 'svelte/transition';
+    import Modal from '$lib/components/common/Modal.svelte';
+    import { browser } from '$app/environment';
+
+    // Modal control variable
+    let showInfoModal = false;
 
     // Subscribe aan de geselecteerde output uit de store
     let selectedDataFromPart1: SubsidyResponse | null = null;
@@ -209,10 +213,18 @@
             } else {
                 // Geen selectie? Toon een melding
                 toast.info("Geen criteria selectie gevonden. Ga naar Subsidie Admin Paneel om criteria te selecteren.");
-            }
-        } catch (error) {
+            }        } catch (error) {
             console.error("Fout bij laden van opgeslagen subsidiecriteria:", error);
             toast.error("Kon opgeslagen subsidiecriteria niet laden");
+        }
+
+        // Show info modal on first visit
+        if (browser) {
+            const tutorialShown = localStorage.getItem('subsidies2TutorialShown');
+            if (!tutorialShown) {
+                showInfoModal = true;
+                localStorage.setItem('subsidies2TutorialShown', 'true');
+            }
         }
     });
 
@@ -521,15 +533,30 @@
 </script>
 
 <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
-    {#if selectedDataFromPart1}
-        <div class="space-y-4">
-            <div class="text-center mb-6">
-                <h2 class="text-2xl font-bold text-gray-800 dark:text-white mb-2">
-                    Subsidie Beoordeling
-                </h2>
-                <h3 class="text-lg font-medium text-gray-600 dark:text-gray-300">
-                    Gebaseerd op: "{selectedDataFromPart1.name}"
-                </h3>
+    {#if selectedDataFromPart1}        <div class="space-y-4">            <!-- Title section with centered title and subtitle, and left-aligned info button -->
+            <div class="flex items-start justify-between mb-6">
+                <div class="flex-1 flex justify-start">
+                    <button
+                        type="button"
+                        on:click={() => showInfoModal = true}
+                        class="bg-blue-100 hover:bg-blue-200 dark:bg-blue-700 dark:hover:bg-blue-600 text-blue-700 dark:text-blue-200 font-medium py-1.5 px-3 rounded-md focus:outline-none focus:shadow-outline flex items-center gap-1.5"
+                        aria-label="Uitleg over de subsidie beoordelingstool"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Uitleg</span>
+                    </button>
+                </div>
+                <div class="text-center flex-1">
+                    <h2 class="text-2xl font-bold text-gray-800 dark:text-white">
+                        Subsidie Beoordeling
+                    </h2>
+                    <h3 class="text-lg font-medium text-gray-600 dark:text-gray-300">
+                        Gebaseerd op: "{selectedDataFromPart1.name}"
+                    </h3>
+                </div>
+                <div class="flex-1"></div>
             </div>
 
             {#if selectedDataFromPart1.summary}
@@ -844,6 +871,89 @@
             <a href="/app-launcher/subsidies" class="text-blue-600 hover:underline mt-2 inline-block">Ga naar Admin Panel</a>
         </div>    {/if}
 </div>
+
+<!-- Info modal voor app uitleg -->
+<Modal
+  bind:show={showInfoModal}
+  size="md"
+  containerClassName="p-0"
+>
+  <div class="p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+        Subsidie Beoordelingstool - Handleiding
+      </h3>
+      <button
+        type="button"
+        on:click={() => showInfoModal = false}
+        class="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+    
+    <div class="space-y-4 text-gray-700 dark:text-gray-300">
+      <div>
+        <h4 class="font-semibold text-gray-900 dark:text-white mb-2">🎯 Wat doet deze tool?</h4>
+        <p class="text-sm">
+          Deze <strong>Subsidie Beoordelingstool</strong> helpt u bij het systematisch beoordelen van subsidieaanvragen 
+          aan de hand van vooraf geëxtraheerde criteria ingesteld door een Admin. Hiermee worden objectieve en consistente beoordelingen gegeven.
+        </p>
+      </div>
+      
+      <div>
+        <h4 class="font-semibold text-gray-900 dark:text-white mb-2">📋 Stap-voor-stap proces:</h4>
+        <ol class="list-decimal list-inside text-sm space-y-2 pl-2">
+          <li><strong>Aanvraag invoeren:</strong> Voer de volledige subsidieaanvraag in of upload als een document</li>
+          <li><strong>Beoordelen:</strong> Laat AI de aanvraag toetsen op vooraf ingestelde criteria</li>
+          <li><strong>Rapport:</strong> Ontvang een professioneel eindadvies met aanbeveling</li>
+        </ol>
+      </div>
+      
+      <div>
+        <h4 class="font-semibold text-gray-900 dark:text-white mb-2">📊 Scoringssysteem:</h4>
+        <ul class="list-disc list-inside text-sm space-y-1 pl-2">
+          <li><strong>9-10:</strong> <span class="text-green-600 dark:text-green-400">Uitstekend</span> - Criterium volledig vervuld</li>
+          <li><strong>7-8:</strong> <span class="text-blue-600 dark:text-blue-400">Goed</span> - Criterium goed vervuld, kleine verbeterpunten</li>
+          <li><strong>5-6:</strong> <span class="text-yellow-600 dark:text-yellow-400">Matig</span> - Criterium deels vervuld, verbeteringen nodig</li>
+          <li><strong>3-4:</strong> <span class="text-orange-600 dark:text-orange-400">Onvoldoende</span> - Belangrijke tekortkomingen</li>
+          <li><strong>0-2:</strong> <span class="text-red-600 dark:text-red-400">Slecht</span> - Criterium niet of nauwelijks vervuld</li>
+          <li><strong>Onzeker:</strong> <span class="text-yellow-600 dark:text-yellow-400">Onbekend</span> - Onvoldoende informatie beschikbaar</li>
+        </ul>
+      </div>
+      
+      <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+        <div class="flex items-start gap-3">
+          <div class="text-blue-500 mt-0.5">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
+              Dit is Stap 2 van het beoordelingsproces
+            </p>
+            <p class="text-xs text-blue-700 dark:text-blue-300">
+              De criteria zijn al geëxtraheerd in stap 1. U beoordeelt nu concrete subsidieaanvragen aan de hand van criteria o.b.v. consistente en objectieve besluitvorming.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="mt-6 flex justify-end">
+      <button
+        type="button"
+        on:click={() => showInfoModal = false}
+        class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+      >
+        Begrepen
+      </button>
+    </div>
+  </div>
+</Modal>
 
 <style>
   .progress-line {
