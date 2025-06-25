@@ -419,8 +419,7 @@
                             </button>
                         </li>
                     {/each}
-                </ul>
-                <div class="mt-4 flex justify-end">
+                </ul>                <div class="mt-4 flex justify-between items-center gap-2">
                     <button
                         type="button"
                         on:click={handleClearOutputs}
@@ -428,6 +427,20 @@
                     >
                         Wis Alle Opgeslagen Resultaten
                     </button>
+                    {#if $subsidyStore.selectedOutput && $user?.role === 'admin'}
+                        <button
+                            type="button"
+                            on:click={setAsGlobalStandard}
+                            class="text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-1 px-3 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                            Maak Standaard voor alle Gebruikers
+                        </button>
+                    {:else}
+                        <div></div>
+                    {/if}
                 </div>
             </div>
         {:else}
@@ -500,21 +513,7 @@
                     </svg>
                     Ga naar beoordelingstool
                 </button>
-            </div>
-        </div>
-    {/if}
-
-    {#if $subsidyStore.selectedOutput && $user?.role === 'admin'}
-        <button
-            type="button"
-            on:click={setAsGlobalStandard}
-            class="mt-2 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2 w-full"
-        >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
-            Maak dit de standaardcriteria voor alle gebruikers
-        </button>
+            </div>        </div>
     {/if}
 </div>
 

@@ -369,9 +369,7 @@
         } finally {
             isLoadingReport = false;
         }
-    }
-
-    async function handleCompleteAssessment() {
+    }    async function handleCompleteAssessment() {
         if (!selectedDataFromPart1?.criteria || selectedDataFromPart1.criteria.length === 0) {
             toast.error("Er zijn geen criteria geselecteerd om te beoordelen");
             return;
@@ -382,10 +380,7 @@
             return;
         }
         
-        const currentModelId = $settings?.models?.[0];
-        if (!currentModelId) {
-            toast.warn("Geen model geselecteerd, standaard model wordt gebruikt");
-        }
+        const currentModelId = getValidSubsidieModel();
         
         // Reset alle status variabelen
         isLoading = true;
@@ -398,9 +393,14 @@
         summaryResult = null;
         reportResult = null;
         
+        const backendUrl = WEBUI_BASE_URL || 'http://localhost:8080';
+        
         try {
-            const backendUrl = WEBUI_BASE_URL || 'http://localhost:8080';
-            const res = await fetch(`${backendUrl}/api/subsidies/complete_assessment`, {
+            // Stap 1: Beoordeling
+            toast.info("Stap 1/3: Criteria beoordeling wordt uitgevoerd...");
+            console.log("Uitvoeren van beoordeling...");
+            
+            const assessmentRes = await fetch(`${backendUrl}/api/subsidies/assess`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -413,31 +413,93 @@
                 })
             });
             
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({ detail: 'Onbekende fout' }));
-                throw new Error(errorData.detail || `HTTP error! status: ${res.status}`);
+            if (!assessmentRes.ok) {
+                const errorData = await assessmentRes.json().catch(() => ({ detail: 'Onbekende fout' }));
+                throw new Error(`Beoordeling gefaald: ${errorData.detail || assessmentRes.status}`);
             }
             
-            const responseData = await res.json();
+            const assessmentData = await assessmentRes.json();
+            assessmentResults = assessmentData.assessment;
+            isLoading = false;
+            toast.success("✅ Stap 1/3: Criteria beoordeling voltooid!");
             
-            // Update alle resultaten
-            assessmentResults = responseData.assessment;
-            summaryResult = responseData.summary;
-            reportResult = responseData.report;
+            // Stap 2: Samenvatting
+            toast.info("Stap 2/3: Samenvatting wordt gegenereerd...");
+            console.log("Uitvoeren van samenvatting...");
             
-            toast.success("Volledige beoordeling succesvol afgerond!");
+            const summaryRes = await fetch(`${backendUrl}/api/subsidies/summarize`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    application_text: applicationText,
+                    criteria: selectedDataFromPart1.criteria,
+                    model: currentModelId
+                })
+            });
+            
+            if (!summaryRes.ok) {
+                const errorData = await summaryRes.json().catch(() => ({ detail: 'Onbekende fout' }));
+                throw new Error(`Samenvatting gefaald: ${errorData.detail || summaryRes.status}`);
+            }
+            
+            summaryResult = await summaryRes.json();
+            isLoadingSummary = false;
+            toast.success("✅ Stap 2/3: Samenvatting voltooid!");
+            
+            // Stap 3: Eindrapport
+            toast.info("Stap 3/3: Eindrapport wordt gegenereerd...");
+            console.log("Uitvoeren van eindrapport...");
+            
+            const reportRes = await fetch(`${backendUrl}/api/subsidies/generate_report`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    assessment_results: assessmentResults,
+                    summary_result: summaryResult,
+                    model: currentModelId
+                })
+            });
+            
+            if (!reportRes.ok) {
+                const errorData = await reportRes.json().catch(() => ({ detail: 'Onbekende fout' }));
+                throw new Error(`Eindrapport gefaald: ${errorData.detail || reportRes.status}`);
+            }
+            
+            reportResult = await reportRes.json();
+            isLoadingReport = false;
+            toast.success("🎉 Volledige beoordeling succesvol afgerond!");
             
         } catch (e) {
             console.error('Fout bij complete beoordeling:', e);
             const errorMessage = `Er is een fout opgetreden: ${e.message || 'Kon de server niet bereiken.'}`;
-            error = errorMessage;
-            summaryError = errorMessage;
-            reportError = errorMessage;
+            
+            // Specifieke error handling per stap
+            if (e.message.includes('Beoordeling gefaald')) {
+                error = errorMessage;
+                isLoading = false;
+            } else if (e.message.includes('Samenvatting gefaald')) {
+                summaryError = errorMessage;
+                isLoadingSummary = false;
+            } else if (e.message.includes('Eindrapport gefaald')) {
+                reportError = errorMessage;
+                isLoadingReport = false;
+            } else {
+                // Algemene fout
+                error = errorMessage;
+                summaryError = errorMessage;
+                reportError = errorMessage;
+                isLoading = false;
+                isLoadingSummary = false;
+                isLoadingReport = false;
+            }
+            
             toast.error(errorMessage);
-        } finally {
-            isLoading = false;
-            isLoadingSummary = false;
-            isLoadingReport = false;
         }
     }
 
@@ -591,14 +653,25 @@
                             type="button"
                             on:click={handleCompleteAssessment}
                             disabled={isLoading || isLoadingSummary || isLoadingReport || isProcessingFile || !applicationText.trim() || !selectedDataFromPart1?.criteria.length}
-                            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-lg shadow-lg transition-all duration-200"
-                        >
-                            {#if isLoading || isLoadingSummary || isLoadingReport}
+                            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-lg shadow-lg transition-all duration-200"                        >
+                            {#if isLoading && isLoadingSummary && isLoadingReport}
                                 <svg class="animate-spin -ml-1 mr-3 h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 718-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
-                                Volledige Beoordeling Uitvoeren...
+                                Stap 1/3: Beoordeling...
+                            {:else if !isLoading && isLoadingSummary && isLoadingReport}
+                                <svg class="animate-spin -ml-1 mr-3 h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 718-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Stap 2/3: Samenvatting...
+                            {:else if !isLoading && !isLoadingSummary && isLoadingReport}
+                                <svg class="animate-spin -ml-1 mr-3 h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 718-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Stap 3/3: Eindrapport...
                             {:else if isProcessingFile}
                                 Bestand verwerken...
                             {:else}
