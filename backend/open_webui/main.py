@@ -395,6 +395,7 @@ from open_webui.tasks import (
 
 from open_webui.routers.app_launcher.b1_taalniveau import taalniveau
 from open_webui.routers.app_launcher import subsidies
+from open_webui.routers.app_launcher.PST import router as pst_router
 
 
 from open_webui.utils.redis import get_sentinels_from_env
@@ -997,6 +998,7 @@ app.include_router(
     prefix="/api/subsidies",
     tags=["subsidies"],
 )
+app.include_router(pst_router, prefix="/api/pst", tags=["pst"])
 app.include_router(
     subsidies.router,
     prefix="/api/app-launcher/subsidies", 

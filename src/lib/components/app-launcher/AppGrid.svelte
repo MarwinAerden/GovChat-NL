@@ -21,6 +21,12 @@
         href: '/app-launcher/subsidies2',
         permission: (user) => user?.role === 'admin' || user?.permissions?.appLauncher?.subsidiesbeoordeling
       },
+      {
+        name: 'PST',
+        icon: '📂',
+        href: '/app-launcher/pst',
+        permission: (user) => user?.role === 'admin' || user?.permissions?.appLauncher?.pst
+      },
     ];
   
     // Filter alleen de apps die zichtbaar moeten zijn voor deze gebruiker

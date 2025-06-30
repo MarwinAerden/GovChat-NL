@@ -48,14 +48,10 @@
   // Reactive statement for preservedWords based on user words and default toggle
   $: preservedWords = useDefaultWords ? [...new Set([...userWords, ...activeDefaultWords])] : [...new Set(userWords)]; // Use Set to ensure uniqueness
 
-  // Model selection logic - now uses filtered models from store
-  let selectedModels = ['']; 
-  $: availableModels = $models || [];
-  
-  // Use the filtered models for B1 app
-  $: b1AccessibleModels = $filteredModels;
+  // Model selection logic - ModelSelector handles B1 app filtering automatically
+  let selectedModels = [''];
 
-  // Note: Automatic model selection is now handled by ModelSelector component
+  // Note: Model filtering and auto-selection is handled by ModelSelector component
 
   onMount(async () => {
     if (browser) {
@@ -102,7 +98,7 @@
         console.log('Model loaded from settings:', selectedModels);
       }
       
-      // Note: Model validation is now handled automatically by ModelSelector
+      // Note: Model filtering is handled by ModelSelector component
       // when using app-filtered models
     } catch (err) {
       console.error('Error loading model:', err);
@@ -199,16 +195,6 @@
     const currentModel = selectedModels[0]; // Get the currently selected model
     if (!currentModel) {
       error = "Selecteer eerst een model";
-      toast.error(error);
-      isLoading = false;
-      showOutput = false;
-      return;
-    }
-    
-    // Additional validation: ensure the selected model has B1 app access
-    const modelHasB1Access = b1AccessibleModels.some(m => m.id === currentModel);
-    if (!modelHasB1Access) {
-      error = "Het geselecteerde model heeft geen toegang tot de B1 Taalniveau app. Neem contact op met de administrator.";
       toast.error(error);
       isLoading = false;
       showOutput = false;
