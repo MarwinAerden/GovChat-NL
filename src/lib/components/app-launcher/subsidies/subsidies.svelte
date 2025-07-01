@@ -23,6 +23,11 @@
     let fileProcessingProgress = 0;
     let fileProcessingInterval: ReturnType<typeof setInterval> | null = null;
 
+    // Edit mode variables
+    let isEditMode = false;
+    let editableCriteria: {id: number, text: string}[] = [];
+    let editableSummary = '';
+
     // Use filtered models from store instead of manual filtering
     $: subsidieAccessibleModels = $filteredModels;
 
@@ -232,6 +237,63 @@
         } else {
             toast.info('Er is geen resultaat om op te slaan.');
         }
+    }
+
+    function startEditMode() {
+        if (responseData) {
+            isEditMode = true;
+            editableCriteria = [...responseData.criteria];
+            editableSummary = responseData.summary || '';
+            toast.info("Edit-modus geactiveerd. U kunt nu de criteria aanpassen.");
+        }
+    }
+
+    function saveEditedCriteria() {
+        if (editableCriteria.length === 0) {
+            toast.error("Er moeten minimaal criteria aanwezig zijn.");
+            return;
+        }
+
+        const name = prompt("Geef een naam op voor deze aangepaste versie:", `Aangepast ${new Date().toLocaleTimeString()}`);
+        if (name === null) {
+            toast.info("Opslaan geannuleerd.");
+            return;
+        }
+        if (!name.trim()) {
+            toast.error("Naam mag niet leeg zijn.");
+            return;
+        }
+
+        // Update responseData met de aangepaste criteria
+        responseData = {
+            criteria: editableCriteria,
+            summary: editableSummary,
+            savedId: `edited_${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            name: name.trim()
+        };
+
+        addSavedOutput(responseData);
+        toast.success(`Aangepaste versie "${name.trim()}" opgeslagen!`);
+        
+        // Exit edit mode
+        isEditMode = false;
+    }
+
+    function cancelEdit() {
+        isEditMode = false;
+        editableCriteria = [];
+        editableSummary = '';
+        toast.info("Edit-modus geannuleerd.");
+    }
+
+    function addCriterion() {
+        const newId = editableCriteria.length > 0 ? Math.max(...editableCriteria.map(c => c.id)) + 1 : 1;
+        editableCriteria = [...editableCriteria, { id: newId, text: '' }];
+    }
+
+    function removeCriterion(index: number) {
+        editableCriteria = editableCriteria.filter((_, i) => i !== index);
     }
 
     function selectOutput(output: SubsidyResponse) {
@@ -484,35 +546,145 @@
                 </div>
             {:else if responseData}
                 <div class="space-y-4">
-                    {#if responseData.summary}
+                    {#if !isEditMode}
+                        <!-- Normal view mode -->
+                        {#if responseData.summary}
+                            <div class="border border-gray-300 rounded-md p-4 bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
+                                <h3 class="text-lg font-semibold text-gray-800 dark:text-white mb-2">Samenvatting:</h3>
+                                <p class="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{responseData.summary}</p>
+                            </div>
+                        {/if}
                         <div class="border border-gray-300 rounded-md p-4 bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
-                            <h3 class="text-lg font-semibold text-gray-800 dark:text-white mb-2">Samenvatting:</h3>
-                            <p class="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{responseData.summary}</p>
+                            <h3 class="text-lg font-semibold text-gray-800 dark:text-white mb-2">Geëxtraheerde Criteria:</h3>
+                            {#if responseData.criteria && responseData.criteria.length > 0}
+                                <ul class="list-disc list-inside space-y-2">
+                                    {#each responseData.criteria as criterion (criterion.id)}
+                                        <li class="text-gray-700 dark:text-gray-300">{criterion.text}</li>
+                                    {/each}
+                                </ul>
+                            {:else}
+                                <p class="text-gray-500 dark:text-gray-400">Geen criteria gevonden.</p>
+                            {/if}
+                        </div>
+                        <div class="flex justify-between gap-2">
+                            <button
+                                type="button"
+                                on:click={startEditMode}
+                                class="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
+                                title="Pas de criteria handmatig aan voordat u ze opslaat"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                Bewerk Criteria
+                            </button>
+                            <button
+                                type="button"
+                                on:click={saveCurrentOutput}
+                                class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
+                                title="Voeg dit resultaat toe aan de lijst en geef een naam op"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                                Sla Resultaat Op Met Naam...
+                            </button>
+                        </div>
+                    {:else}
+                        <!-- Edit mode -->
+                        <div class="border border-orange-300 rounded-md p-4 bg-orange-50 dark:bg-orange-900/20 dark:border-orange-700">
+                            <h3 class="text-lg font-semibold text-orange-800 dark:text-orange-200 mb-4 flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                Bewerk Modus - Pas criteria aan
+                            </h3>
+                            
+                            <!-- Editable summary -->
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-orange-800 dark:text-orange-200 mb-2">
+                                    Samenvatting:
+                                </label>
+                                <textarea
+                                    bind:value={editableSummary}
+                                    rows="3"
+                                    class="w-full px-3 py-2 border border-orange-300 dark:border-orange-600 rounded-md shadow-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-orange-500 focus:border-orange-500"
+                                    placeholder="Voer een samenvatting in..."
+                                />
+                            </div>
+
+                            <!-- Editable criteria -->
+                            <div class="mb-4">
+                                <div class="flex justify-between items-center mb-2">
+                                    <label class="block text-sm font-medium text-orange-800 dark:text-orange-200">
+                                        Criteria:
+                                    </label>
+                                    <button
+                                        type="button"
+                                        on:click={addCriterion}
+                                        class="bg-green-600 hover:bg-green-700 text-white text-sm py-1 px-2 rounded focus:outline-none focus:shadow-outline flex items-center gap-1"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                        </svg>
+                                        Criterium toevoegen
+                                    </button>
+                                </div>
+                                {#if editableCriteria.length > 0}
+                                    <div class="space-y-3">
+                                        {#each editableCriteria as criterion, index (criterion.id)}
+                                            <div class="flex items-start gap-2 border border-gray-200 dark:border-gray-600 rounded p-3 bg-white dark:bg-gray-800">
+                                                <span class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-2 min-w-[2rem]">
+                                                    {index + 1}.
+                                                </span>
+                                                <textarea
+                                                    bind:value={criterion.text}
+                                                    rows="2"
+                                                    class="flex-1 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-orange-500 focus:border-orange-500"
+                                                    placeholder="Voer criteriumtekst in..."
+                                                />
+                                                <button
+                                                    type="button"
+                                                    on:click={() => removeCriterion(index)}
+                                                    class="bg-red-600 hover:bg-red-700 text-white text-sm py-1 px-2 rounded focus:outline-none focus:shadow-outline flex items-center"
+                                                    title="Verwijder dit criterium"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        {/each}
+                                    </div>
+                                {:else}
+                                    <p class="text-gray-500 dark:text-gray-400 text-center py-4">Geen criteria aanwezig. Klik op "Criterium toevoegen" om te beginnen.</p>
+                                {/if}
+                            </div>
+
+                            <!-- Edit mode buttons -->
+                            <div class="flex justify-between gap-2">
+                                <button
+                                    type="button"
+                                    on:click={cancelEdit}
+                                    class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                    Annuleren
+                                </button>
+                                <button
+                                    type="button"
+                                    on:click={saveEditedCriteria}
+                                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
+                                    title="Sla de aangepaste criteria op met een naam"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Sla Aangepaste Versie Op
+                                </button>
+                            </div>
                         </div>
                     {/if}
-                    <div class="border border-gray-300 rounded-md p-4 bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
-                        <h3 class="text-lg font-semibold text-gray-800 dark:text-white mb-2">Geëxtraheerde Criteria:</h3>
-                        {#if responseData.criteria && responseData.criteria.length > 0}
-                            <ul class="list-disc list-inside space-y-2">
-                                {#each responseData.criteria as criterion (criterion.id)}
-                                    <li class="text-gray-700 dark:text-gray-300">{criterion.text}</li>
-                                {/each}
-                            </ul>
-                        {:else}
-                            <p class="text-gray-500 dark:text-gray-400">Geen criteria gevonden.</p>
-                        {/if}
-                    </div>
-                    <div class="flex justify-end">
-                        <button
-                            type="button"
-                            on:click={saveCurrentOutput}
-                            class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
-                            title="Voeg dit resultaat toe aan de lijst en geef een naam op"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                            Sla Resultaat Op Met Naam...
-                        </button>
-                    </div>
                 </div>
             {/if}
         </div>

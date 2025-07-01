@@ -491,18 +491,8 @@ async def handle_subsidy_query(
                 summary=parsed_data.get("summary")
             )
 
-            # Sla de criteria op voor toekomstige deduplicatie
-            criteria_data = {
-                "criteria": [{"id": c.id, "text": c.text} for c in output_data.criteria],
-                "summary": output_data.summary
-            }
-            
-            subsidy_storage.save_criteria(
-                user_id=user.id,
-                criteria=criteria_data,
-                input_text=query_input.user_input,
-                name=f"Subsidie {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-            )
+            # NIET automatisch opslaan - alleen wanneer gebruiker expliciet op "Sla Resultaat Op" klikt
+            # De save gebeurt nu via de /save endpoint wanneer gebruiker bewust opslaat
 
             return output_data
 
