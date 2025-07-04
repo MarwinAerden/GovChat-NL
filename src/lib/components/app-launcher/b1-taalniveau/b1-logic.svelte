@@ -7,6 +7,10 @@
   import { toast } from 'svelte-sonner';
   import Modal from '$lib/components/common/Modal.svelte';
   import { browser } from '$app/environment';
+  import { uploadFile } from '$lib/apis/files';
+  
+  // Props
+  export let selectedModels = [''];
   
   // Modal control variables
   let showPreservedWordsModal = false;
@@ -44,31 +48,12 @@
   let activeDefaultWords = [...originalDefaultWords];
   let userWords = [];
   let initialLoadComplete = false;
+  
+  // Get the current selected model from selectedModels prop
+  $: selectedModelId = selectedModels && selectedModels.length > 0 && selectedModels[0] ? selectedModels[0] : '';
 
   // Reactive statement for preservedWords based on user words and default toggle
   $: preservedWords = useDefaultWords ? [...new Set([...userWords, ...activeDefaultWords])] : [...new Set(userWords)];
-
-  // Helper function to get current model from sessionStorage
-  function getCurrentModel() {
-    if (!browser) return '';
-    try {
-      const stored = sessionStorage.getItem('selectedModels');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return Array.isArray(parsed) && parsed.length > 0 ? parsed[0] : '';
-      }
-    } catch (e) {
-      console.error('Error parsing selectedModels from sessionStorage:', e);
-    }
-    return '';
-  }
-
-  // Helper function to set model in sessionStorage
-  function setCurrentModel(modelId) {
-    if (browser) {
-      sessionStorage.setItem('selectedModels', JSON.stringify([modelId]));
-    }
-  }
 
   onMount(async () => {
     // Set app context to B1 to ensure proper model filtering
@@ -88,11 +73,6 @@
         }
       }
       
-      // Set initial model if none exists
-      if (!getCurrentModel() && $settings?.models && $settings.models.length > 0) {
-        setCurrentModel($settings.models[0]);
-      }
-      
       // Show info modal on first visit
       if (!localStorage.getItem('b1TutorialShown')) {
         showInfoModal = true;
@@ -106,26 +86,6 @@
   // Save userWords to localStorage whenever it changes
   $: if (browser && initialLoadComplete) {
     localStorage.setItem('b1UserPreservedWords', JSON.stringify(userWords));
-  }
-
-  // Ensure a valid model is selected when models are loaded
-  $: if (browser && $models && $models.length > 0) {
-    const currentModel = getCurrentModel();
-    const allModelIds = $models.map(m => m.id);
-    
-    if (currentModel && !allModelIds.includes(currentModel)) {
-      // Invalid model, find a replacement
-      const validModel = $filteredModels && $filteredModels.length > 0 
-        ? $filteredModels[0].id 
-        : allModelIds[0];
-      if (validModel) setCurrentModel(validModel);
-    } else if (!currentModel && allModelIds.length > 0) {
-      // No model selected, set a default
-      const defaultModel = $filteredModels && $filteredModels.length > 0 
-        ? $filteredModels[0].id 
-        : allModelIds[0];
-      if (defaultModel) setCurrentModel(defaultModel);
-    }
   }
 
   // Word counting and progress variables
@@ -177,36 +137,25 @@
       return;
     }
 
-    const currentModel = getCurrentModel();
-    if (!currentModel) {
-      error = "Selecteer eerst een model";
-      toast.error(error);
+    // Model validation
+    if (!validateModelSelection()) {
+      console.error('[B1Logic] No model selected - selectedModelId:', selectedModelId, 'selectedModels:', selectedModels);
       isLoading = false;
       showOutput = false;
       return;
     }
 
-    // Validate model availability and use fallback if needed
-    let modelToUse = currentModel;
-    const allModelIds = $models?.map(m => m.id) || [];
-    const b1ModelIds = $filteredModels?.map(m => m.id) || [];
+    // Use the selected model directly - no fallback
+    const modelToUse = selectedModelId;
     
-    if (b1ModelIds.length > 0 && !b1ModelIds.includes(currentModel)) {
-      modelToUse = b1ModelIds[0];
-    } else if (allModelIds.length > 0 && !allModelIds.includes(currentModel)) {
-      modelToUse = allModelIds[0];
-    }
-    
-    if (modelToUse !== currentModel) {
-      setCurrentModel(modelToUse);
-    }
     // --- End Validations ---
 
 
     try {
       const response = await fetch(`${WEBUI_BASE_URL}/api/b1/translate`, {
         method: 'POST',
-        headers: {
+        headers:
+         {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
@@ -326,11 +275,15 @@
 
   // Handle drag & drop files
   function handleFileDrop(event) {
+    // Block if no model is selected
+    if (!validateModelSelection()) {
+      return;
+    }
+
     const file = event.dataTransfer?.files?.[0];
     if (!file) return;
 
-    if (!file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
-      toast.error('Alleen Word, PDF, TXT of RTF bestanden zijn toegestaan');
+    if (!validateFileType(file)) {
       return;
     }
 
@@ -359,45 +312,41 @@
     }, 50);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      // Use the same uploadFile function as the normal chat interface
+      const uploadedFile = await uploadFile(localStorage.getItem('token'), file);
 
-      const uploadResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
-      });
+      if (uploadedFile) {
+        if (uploadedFile.error) {
+          console.warn('File upload warning:', uploadedFile.error);
+          toast.warning(uploadedFile.error);
+        }
 
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json().catch(() => ({ detail: 'Fout bij uploaden bestand' }));
-        throw new Error(errorData.detail || 'Fout bij uploaden bestand');
-      }
-
-      const uploadData = await uploadResponse.json();
-
-      if (uploadData.content) {
-         inputText = uploadData.content;
-      } else if (uploadData.id) {
-          const contentResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files/${uploadData.id}/data/content`, {
-              headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        // Extract content from the uploaded file
+        if (uploadedFile.content) {
+          inputText = uploadedFile.content;
+        } else {
+          // If no direct content, try to fetch it
+          const contentResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files/${uploadedFile.id}/data/content`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
           });
-          if (!contentResponse.ok) {
-              throw new Error('Fout bij ophalen bestandsinhoud na upload');
+          
+          if (contentResponse.ok) {
+            const textData = await contentResponse.json();
+            inputText = textData.content;
+          } else {
+            throw new Error('Fout bij ophalen bestandsinhoud na upload');
           }
-          const textData = await contentResponse.json();
-          inputText = textData.content;
+        }
+
+        // Convert HTML strong tags to markdown for docx files
+        if (file.name.match(/\.(doc|docx)$/i)) {
+          inputText = inputText.replace(/<strong>(.*?)<\/strong>/gi, '**$1**');
+        }
+
+        toast.success('Bestand succesvol verwerkt');
       } else {
-          throw new Error('Onbekend antwoordformaat van upload endpoint');
+        throw new Error('Upload heeft geen resultaat opgeleverd');
       }
-
-      // Convert HTML strong tags to markdown for docx files
-      if (file.name.match(/\.(doc|docx)$/i)) {
-        inputText = inputText.replace(/<strong>(.*?)<\/strong>/gi, '**$1**');
-      }
-
-      toast.success('Bestand succesvol verwerkt');
 
     } catch (err) {
       console.error('Error processing file:', err);
@@ -417,12 +366,16 @@
 
   // File upload handler using /api/v1/files
   async function handleFileUpload(event) {
+    // Block if no model is selected
+    if (!validateModelSelection()) {
+      return;
+    }
+
     const file = event.target?.files?.[0];
     if (!file) return;
 
     // Validate file type
-    if (!file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
-      toast.error('Alleen Word, PDF, TXT of RTF bestanden zijn toegestaan');
+    if (!validateFileType(file)) {
       return;
     }
 
@@ -441,6 +394,23 @@
   // Reactive calculation for progress display text
   $: progressDisplay = totalChunks > 0 ? Math.round((receivedChunks / totalChunks) * 100) : (isLoading ? 0 : (outputText ? 100 : 0));
 
+  // Utility functions to reduce code duplication
+  function validateModelSelection() {
+    if (!selectedModelId) {
+      const error = 'Selecteer eerst een AI-model via de modelselectie bovenaan de pagina';
+      toast.error(error);
+      return false;
+    }
+    return true;
+  }
+
+  function validateFileType(file) {
+    if (!file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
+      toast.error('Alleen Word, PDF, TXT of RTF bestanden zijn toegestaan');
+      return false;
+    }
+    return true;
+  }
 </script>
 <div class="max-w-7xl mx-auto mt-6">
   <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
@@ -544,8 +514,8 @@
             rows="12"
             draggable="false"
             class="w-full h-[400px] flex-grow px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white min-h-[250px] md:min-h-[400px] overflow-y-auto font-[system-ui] {isFlashing ? 'flash-animation' : ''}"
-            placeholder="Plak of typ hier de tekst die je wilt vereenvoudigen."
-            disabled={isLoading}
+            placeholder={!selectedModelId ? "Selecteer eerst een taalmodel via de modelselectie links-bovenaan de pagina" : "Plak of typ hier de tekst die je wilt vereenvoudigen."}
+            disabled={isLoading || !selectedModelId}
             spellcheck="false"
             on:dragover|preventDefault
             on:drop|preventDefault={handleFileDrop}
@@ -590,8 +560,9 @@
               
               <button
                 on:click={() => fileInput.click()}
-                disabled={isProcessingFile}
-                class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium py-1 px-3 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 min-w-[140px] flex items-center justify-center gap-2"
+                disabled={isProcessingFile || !selectedModelId}
+                class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium py-1 px-3 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed min-w-[140px] flex items-center justify-center gap-2"
+                title={!selectedModelId ? "Geen model geselecteerd" : "Upload een document"}
               >
                 {#if isProcessingFile}
                   <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -620,9 +591,9 @@
       <div class="hidden md:flex flex-col items-center justify-center">
         <button
           on:click={simplifyText}
-          disabled={isLoading || !getCurrentModel()}
-          class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-full focus:outline-none focus:shadow-outline disabled:opacity-50 h-12 w-12 flex items-center justify-center"
-          title="Versimpel naar {languageLevel}-taalniveau"
+          disabled={isLoading || !selectedModelId}
+          class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-full focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed h-12 w-12 flex items-center justify-center"
+          title={!selectedModelId ? "Geen model geselecteerd" : `Versimpel naar ${languageLevel}-taalniveau`}
         >
           {#if isLoading}
             <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -917,20 +888,6 @@
 </Modal>
 
 <style>
-  /* Loading spinner */
-  .loading-spinner {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 3px solid rgba(59, 130, 246, 0.1);
-    border-top-color: #3b82f6;
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-  
   /* Output strong elements */
   :global(#output strong) {
     font-weight: 700;
@@ -969,10 +926,5 @@
     animation: flash 1.0s cubic-bezier(0.4, 0, 0.2, 1);
     border-color: rgba(96, 165, 250, 0.8);
     position: relative;
-  }
-
-  /* Optional: Style for the progress text during loading */
-  .progress-text {
-    font-variant-numeric: tabular-nums; /* Keeps numbers aligned */
   }
 </style>
