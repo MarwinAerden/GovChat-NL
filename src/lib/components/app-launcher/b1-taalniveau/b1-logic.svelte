@@ -7,6 +7,7 @@
   import { toast } from 'svelte-sonner';
   import Modal from '$lib/components/common/Modal.svelte';
   import { browser } from '$app/environment';
+  import { uploadFile } from '$lib/apis/files';
   
   // Props
   export let selectedModels = [''];
@@ -320,45 +321,47 @@
     }, 50);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      // Use the same uploadFile function as the normal chat interface
+      const uploadedFile = await uploadFile(localStorage.getItem('token'), file);
 
-      const uploadResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
-      });
+      if (uploadedFile) {
+        console.log('File upload completed:', {
+          id: uploadedFile.id,
+          name: file.name,
+          collection: uploadedFile?.meta?.collection_name
+        });
 
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json().catch(() => ({ detail: 'Fout bij uploaden bestand' }));
-        throw new Error(errorData.detail || 'Fout bij uploaden bestand');
-      }
+        if (uploadedFile.error) {
+          console.warn('File upload warning:', uploadedFile.error);
+          toast.warning(uploadedFile.error);
+        }
 
-      const uploadData = await uploadResponse.json();
-
-      if (uploadData.content) {
-         inputText = uploadData.content;
-      } else if (uploadData.id) {
-          const contentResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files/${uploadData.id}/data/content`, {
-              headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        // Extract content from the uploaded file
+        if (uploadedFile.content) {
+          inputText = uploadedFile.content;
+        } else {
+          // If no direct content, try to fetch it
+          const contentResponse = await fetch(`${WEBUI_BASE_URL}/api/v1/files/${uploadedFile.id}/data/content`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
           });
-          if (!contentResponse.ok) {
-              throw new Error('Fout bij ophalen bestandsinhoud na upload');
+          
+          if (contentResponse.ok) {
+            const textData = await contentResponse.json();
+            inputText = textData.content;
+          } else {
+            throw new Error('Fout bij ophalen bestandsinhoud na upload');
           }
-          const textData = await contentResponse.json();
-          inputText = textData.content;
+        }
+
+        // Convert HTML strong tags to markdown for docx files
+        if (file.name.match(/\.(doc|docx)$/i)) {
+          inputText = inputText.replace(/<strong>(.*?)<\/strong>/gi, '**$1**');
+        }
+
+        toast.success('Bestand succesvol verwerkt');
       } else {
-          throw new Error('Onbekend antwoordformaat van upload endpoint');
+        throw new Error('Upload heeft geen resultaat opgeleverd');
       }
-
-      // Convert HTML strong tags to markdown for docx files
-      if (file.name.match(/\.(doc|docx)$/i)) {
-        inputText = inputText.replace(/<strong>(.*?)<\/strong>/gi, '**$1**');
-      }
-
-      toast.success('Bestand succesvol verwerkt');
 
     } catch (err) {
       console.error('Error processing file:', err);
