@@ -23,8 +23,15 @@
 	// Use either filtered models or all models based on useAppFilter prop
 	$: availableModels = useAppFilter ? $filteredModels : $models;
 
-	// DISABLED ALL REACTIVE LOGIC FOR DEBUGGING
-	// TODO: Re-enable once basic model selection works
+	// Auto-select first available model if none selected and we have filtered models
+	$: if (useAppFilter && availableModels.length > 0 && selectedModels[0] === '' && !autoSelectionInProgress) {
+		autoSelectionInProgress = true;
+		selectedModels = [availableModels[0].id];
+		console.log('[ModelSelector] Auto-selected model for app context:', availableModels[0].id);
+		setTimeout(() => {
+			autoSelectionInProgress = false;
+		}, 100);
+	}
 
 	const saveDefaultModel = async () => {
 		const hasEmptyModel = selectedModels.filter((it) => it === '');
