@@ -1,6 +1,6 @@
 <script lang="ts">    import { WEBUI_BASE_URL } from '$lib/constants';
     import { models, settings, user } from '$lib/stores';
-    import { filteredModels, currentAppContext, getFirstAvailableAppModel } from '$lib/stores/appModels';
+    import { filteredModels, currentAppContext } from '$lib/stores/appModels';
     import { toast } from 'svelte-sonner';
     import { fade } from 'svelte/transition';
     import { onMount } from 'svelte';

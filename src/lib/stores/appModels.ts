@@ -53,6 +53,17 @@ export const filteredModels = derived(
                 });
                 return b1Models;
                 
+            case 'subsidie':
+                const subsidieModels = typedModels.filter(model => 
+                    model && model.info?.meta?.capabilities?.subsidie_app_access === true
+                );
+                console.log('[appModels] Subsidie app context - Available models:', {
+                    total: typedModels.length,
+                    subsidieAccessible: subsidieModels.length,
+                    subsidieModelIds: subsidieModels.map(m => m.id)
+                });
+                return subsidieModels;
+                
             case 'general':
             default:
                 console.log('[appModels] General context - All models available:', typedModels.length);
@@ -60,6 +71,13 @@ export const filteredModels = derived(
         }
     }
 );
+
+// Utility function to get the first available model for the current app context
+export function getFirstAvailableAppModel(context?: 'b1' | 'subsidie' | 'general') {
+    return derived(filteredModels, ($filteredModels) => {
+        return $filteredModels.length > 0 ? $filteredModels[0].id : null;
+    });
+}
 
 // Utility function to set app context based on route
 export function setAppContextFromRoute(route: string) {

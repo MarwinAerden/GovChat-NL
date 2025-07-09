@@ -1,7 +1,7 @@
 <script lang="ts">
     import { WEBUI_BASE_URL } from '$lib/constants';
     import { models, settings } from '$lib/stores';
-    import { filteredModels, currentAppContext, getFirstAvailableAppModel } from '$lib/stores/appModels';    import { subsidyStore, fetchSavedOutputs, loadLastSelection, loadGlobalSelection } from '$lib/stores/subsidyStore';
+    import { filteredModels, currentAppContext } from '$lib/stores/appModels';    import { subsidyStore, fetchSavedOutputs, loadLastSelection, loadGlobalSelection } from '$lib/stores/subsidyStore';
     import type { SubsidyResponse } from '$lib/stores/subsidyStore';
     import { onMount } from 'svelte';
     import { toast } from 'svelte-sonner';
