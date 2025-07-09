@@ -264,7 +264,7 @@ async def generate_version(request: Request, chunk: str, model: str, preserved_w
         return {"index": index, "temperature": temperature, "text": simplified_text, "error": None} # Return the full (cleaned) output
     except Exception as e:
         # Log the error for debugging purposes
-        print(f"Error processing chunk {index} with model {model} at temperature {e}")
+        print(f"Error processing chunk {index} with model {model} at temperature {temperature}: {e}")
         # Return the original chunk in case of an error to avoid data loss, include temperature and error info
         return {"index": index, "temperature": temperature, "text": chunk, "error": str(e)}
 
@@ -343,6 +343,8 @@ class SimplifyTextRequest(BaseModel):
 async def simplify_text_endpoint(request: Request, data: SimplifyTextRequest, user = Depends(get_current_user)):
     """Endpoint to simplify text to B1/B2 level. Generates 3 versions per chunk, then selects the best."""
 
+    print(f"Using model: {data.model}")
+
     # --- START: Automatically detect and add law articles to preserved_words ---
     # Regex to find common law article mentions (e.g., Artikel 1, art. 2.3, Artikel 3:16)
     # This regex aims for "Artikel X", "Artikel X.Y", "Artikel X:Y", "Artikel Xa", "artikel X lid Y" (captures "artikel X")
@@ -404,27 +406,26 @@ async def simplify_text_endpoint(request: Request, data: SimplifyTextRequest, us
                     # del chunk_results[idx] # Be careful if original_chunk is needed elsewhere
 
             except Exception as e:
-                 # Handle errors during the await future itself (less likely if generate_version catches errors)
-                 print(f"Error awaiting generation task result: {e}")
-                 # Consider how to handle this failure downstream. Maybe skip selection for this chunk?
-                 # For now, it might prevent the selection task from being scheduled if an error occurs here.
-                 pass # Continue processing other tasks
+                # Handle errors during the await future itself (less likely if generate_version catches errors)
+                print(f"Error awaiting generation task result: {e}")
+                # Continue processing other tasks
+                pass
 
         # Process selection results as they complete and yield them
         for future in asyncio.as_completed(selection_tasks):
-             try:
-                 final_result = await future
-                 # --- DOUBLE CHECK and REMOVE DELIMITERS ---
-                 if 'text' in final_result and isinstance(final_result['text'], str):
-                     # Remove <<< and >>> just in case they slipped through selection/parsing
-                     final_result['text'] = final_result['text'].replace('<<<', '').replace('>>>', '').strip()
-                 # --- END DOUBLE CHECK ---
-                 yield json.dumps(final_result) + "\n"
-             except Exception as e:
-                 print(f"Error awaiting or processing selection task result: {e}")
-                 # Decide how to inform the client about selection failure
-                 # Example: yield json.dumps({"index": final_result.get('index', -1), "error": f"Processing failed after selection: {e}"}) + "\n"
-                 # Current select_best_version tries to return fallback text with error info.
+            try:
+                final_result = await future
+                # --- DOUBLE CHECK and REMOVE DELIMITERS ---
+                if 'text' in final_result and isinstance(final_result['text'], str):
+                    # Remove <<< and >>> just in case they slipped through selection/parsing
+                    final_result['text'] = final_result['text'].replace('<<<', '').replace('>>>', '').strip()
+                # --- END DOUBLE CHECK ---
+                yield json.dumps(final_result) + "\n"
+            except Exception as e:
+                print(f"Error awaiting or processing selection task result: {e}")
+                # Yield error result for this chunk
+                error_result = {"index": -1, "error": f"Processing failed after selection: {e}"}
+                yield json.dumps(error_result) + "\n"
 
 
     return StreamingResponse(stream_results(), media_type="application/x-ndjson")

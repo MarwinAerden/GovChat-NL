@@ -36,6 +36,8 @@
 	export let files = [];
 
 	export let selectedToolIds = [];
+	export let selectedFilterIds = [];
+
 	export let imageGenerationEnabled = false;
 	export let codeInterpreterEnabled = false;
 	export let webSearchEnabled = false;
@@ -43,6 +45,37 @@
 	export let toolServers = [];
 
 	let models = [];
+
+	function getGreetingName(user) {
+		// Controleer op bestaan en geldigheid van de naam
+		if (!user?.name || typeof user.name !== 'string') {
+			return 'collega';
+		}
+
+		// Speciaal geval: Statenlid (bv. "Statenlid, Jansen, A.")
+		// Geef altijd "Statenlid" terug
+		if (user.name.startsWith('Statenlid')) {
+			return 'Statenlid';
+		}
+
+		// Speciaal geval: Gedeputeerde (bv. "Jansen, Petra (Gedeputeerde)")
+		// Geef enkel de voornaam terug
+		const gedeputeerdeMatch = user.name.match(/, ([^(]+) \(Gedeputeerde\)/);
+		if (gedeputeerdeMatch) {
+			// gedeputeerdeMatch[1] bevat de voornaam
+			return gedeputeerdeMatch[1].trim();
+		}
+
+		// Algemeen geval: andere namen ("Achternaam, Voornaam")
+		// Geef voornaam indien aanwezig
+		const parts = user.name.split(', ');
+		if (parts.length >= 2) {
+			return parts[1];
+		}
+
+		// Fallback: geef volledige naam terug
+		return user.name;
+	}
 
 	const selectSuggestionPrompt = async (p) => {
 		let text = p;
@@ -140,9 +173,9 @@
 				
 				<!-- GovChat-NL -->
 				{#if $user?.name}
-					{`${$i18n.t('Hello, {{name}}', { name: $user.name }).split(', ')[0]} ${$i18n.t('Hello, {{name}}', { name: $user.name }).split(', ').slice(-1)}, ${placeholderMessage}`}
+					{`${$i18n.t('Hello')} ${getGreetingName($user)}, ${placeholderMessage}`}
 				{:else}
-					{`${$i18n.t('Hello')}, ${placeholderMessage.charAt(0).toUpperCase()}${placeholderMessage.slice(1)}`}
+					{`${$i18n.t('Hello')} ${placeholderMessage.charAt(0).toUpperCase()}${placeholderMessage.slice(1)}`}
 				{/if}
 
 			</div>
@@ -194,6 +227,7 @@
 					bind:prompt
 					bind:autoScroll
 					bind:selectedToolIds
+					bind:selectedFilterIds
 					bind:imageGenerationEnabled
 					bind:codeInterpreterEnabled
 					bind:webSearchEnabled
@@ -203,6 +237,13 @@
 					{stopResponse}
 					{createMessagePair}
 					placeholder={$i18n.t('How can I help you today?')}
+					onChange={(input) => {
+						if (input.prompt !== null) {
+							localStorage.setItem(`chat-input`, JSON.stringify(input));
+						} else {
+							localStorage.removeItem(`chat-input`);
+						}
+					}}
 					on:upload={(e) => {
 						dispatch('upload', e.detail);
 					}}
@@ -213,7 +254,7 @@
 			</div>
 		</div>
 	</div>
-	<div class="mx-auto max-w-2xl font-primary" in:fade={{ duration: 200, delay: 200 }}>
+	<div class="mx-auto max-w-2xl font-primary mt-2" in:fade={{ duration: 200, delay: 200 }}>
 		<div class="mx-5">
 			<Suggestions
 				suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
