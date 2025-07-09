@@ -109,9 +109,6 @@
 
   // Main function to trigger text simplification
   async function simplifyText() {
-    // Debug logging
-    console.log('[B1Logic] simplifyText called - selectedModels:', selectedModels, 'selectedModelId:', selectedModelId);
-    
     // Reset errors and state
     error = null;
     isLoading = true;
@@ -140,12 +137,8 @@
       return;
     }
 
-    // Enhanced model validation
-    console.log('[B1Logic] Model validation - selectedModelId:', selectedModelId, 'selectedModels:', selectedModels);
-    
-    if (!selectedModelId || selectedModelId === '') {
-      error = "Selecteer eerst een model via de modelselectie bovenaan de pagina";
-      toast.error(error);
+    // Model validation
+    if (!validateModelSelection()) {
       console.error('[B1Logic] No model selected - selectedModelId:', selectedModelId, 'selectedModels:', selectedModels);
       isLoading = false;
       showOutput = false;
@@ -154,7 +147,6 @@
 
     // Use the selected model directly - no fallback
     const modelToUse = selectedModelId;
-    console.log('[B1Logic] Using model:', modelToUse);
     
     // --- End Validations ---
 
@@ -162,7 +154,8 @@
     try {
       const response = await fetch(`${WEBUI_BASE_URL}/api/b1/translate`, {
         method: 'POST',
-        headers: {
+        headers:
+         {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
@@ -283,16 +276,14 @@
   // Handle drag & drop files
   function handleFileDrop(event) {
     // Block if no model is selected
-    if (!selectedModelId) {
-      toast.error('Selecteer eerst een AI-model via de modelselectie bovenaan de pagina');
+    if (!validateModelSelection()) {
       return;
     }
 
     const file = event.dataTransfer?.files?.[0];
     if (!file) return;
 
-    if (!file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
-      toast.error('Alleen Word, PDF, TXT of RTF bestanden zijn toegestaan');
+    if (!validateFileType(file)) {
       return;
     }
 
@@ -325,12 +316,6 @@
       const uploadedFile = await uploadFile(localStorage.getItem('token'), file);
 
       if (uploadedFile) {
-        console.log('File upload completed:', {
-          id: uploadedFile.id,
-          name: file.name,
-          collection: uploadedFile?.meta?.collection_name
-        });
-
         if (uploadedFile.error) {
           console.warn('File upload warning:', uploadedFile.error);
           toast.warning(uploadedFile.error);
@@ -382,8 +367,7 @@
   // File upload handler using /api/v1/files
   async function handleFileUpload(event) {
     // Block if no model is selected
-    if (!selectedModelId) {
-      toast.error('Geen model geselecteerd - selecteer eerst een AI-model via de modelselectie bovenaan de pagina');
+    if (!validateModelSelection()) {
       return;
     }
 
@@ -391,8 +375,7 @@
     if (!file) return;
 
     // Validate file type
-    if (!file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
-      toast.error('Alleen Word, PDF, TXT of RTF bestanden zijn toegestaan');
+    if (!validateFileType(file)) {
       return;
     }
 
@@ -411,6 +394,23 @@
   // Reactive calculation for progress display text
   $: progressDisplay = totalChunks > 0 ? Math.round((receivedChunks / totalChunks) * 100) : (isLoading ? 0 : (outputText ? 100 : 0));
 
+  // Utility functions to reduce code duplication
+  function validateModelSelection() {
+    if (!selectedModelId) {
+      const error = 'Selecteer eerst een AI-model via de modelselectie bovenaan de pagina';
+      toast.error(error);
+      return false;
+    }
+    return true;
+  }
+
+  function validateFileType(file) {
+    if (!file.name.match(/\.(doc|docx|pdf|txt|rtf)$/i)) {
+      toast.error('Alleen Word, PDF, TXT of RTF bestanden zijn toegestaan');
+      return false;
+    }
+    return true;
+  }
 </script>
 <div class="max-w-7xl mx-auto mt-6">
   <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
@@ -888,20 +888,6 @@
 </Modal>
 
 <style>
-  /* Loading spinner */
-  .loading-spinner {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 3px solid rgba(59, 130, 246, 0.1);
-    border-top-color: #3b82f6;
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-  
   /* Output strong elements */
   :global(#output strong) {
     font-weight: 700;
@@ -940,10 +926,5 @@
     animation: flash 1.0s cubic-bezier(0.4, 0, 0.2, 1);
     border-color: rgba(96, 165, 250, 0.8);
     position: relative;
-  }
-
-  /* Optional: Style for the progress text during loading */
-  .progress-text {
-    font-variant-numeric: tabular-nums; /* Keeps numbers aligned */
   }
 </style>
