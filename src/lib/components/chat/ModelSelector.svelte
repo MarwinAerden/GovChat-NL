@@ -24,7 +24,7 @@
 	$: availableModels = useAppFilter ? $filteredModels : $models;
 
 	// Auto-select first available model if none selected and we have filtered models
-	$: if (useAppFilter && availableModels.length > 0 && selectedModels[0] === '' && !autoSelectionInProgress) {
+	$: if (useAppFilter && availableModels && availableModels.length > 0 && selectedModels && selectedModels[0] === '' && !autoSelectionInProgress) {
 		autoSelectionInProgress = true;
 		selectedModels = [availableModels[0].id];
 		console.log('[ModelSelector] Auto-selected model for app context:', availableModels[0].id);

@@ -12,7 +12,7 @@ services:
   #     - "5432:5432"
 
   open-webui:
-    image: ghcr.io/marwinaerden/govchat-nl:sjeng5
+    image: ghcr.io/marwinaerden/govchat-nl:sjeng13
     restart: always
     ports:
       - "18462:8080"
