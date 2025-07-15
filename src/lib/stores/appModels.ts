@@ -5,8 +5,9 @@ import { page } from '$app/stores';
 
 // Interface for model capabilities
 interface ModelCapabilities {
-    b1_app_access?: boolean;
-    subsidie_app_access?: boolean;
+    general_chat_app_access?: boolean;
+    versimpelaar_app_access?: boolean;
+    chat_app_access?: boolean;
     [key: string]: any;
 }
 
@@ -28,7 +29,7 @@ interface Model {
 }
 
 // Store to track current app context
-export const currentAppContext = writable<'b1' | 'subsidie' | 'general'>('general');
+export const currentAppContext = writable<'chat' | 'versimpelaar'>('chat'); // Default to 'chat' context
 
 // Derived store that filters models based on current app context
 export const filteredModels = derived(
@@ -42,58 +43,45 @@ export const filteredModels = derived(
         const typedModels = $models as Model[];
 
         switch ($currentAppContext) {
-            case 'b1':
-                const b1Models = typedModels.filter(model => 
-                    model && model.info?.meta?.capabilities?.b1_app_access === true
+            case 'versimpelaar':
+                const versimpelaarModels = typedModels.filter(model => 
+                    model && model.info?.meta?.capabilities?.versimpelaar_app_access === true
                 );
-                console.log('[appModels] B1 app context - Available models:', {
-                    total: typedModels.length,
-                    b1Accessible: b1Models.length,
-                    b1ModelIds: b1Models.map(m => m.id)
+                console.log('[appModels] Versimpelaar app context - Available models:', {
+                    available_models: versimpelaarModels
                 });
-                return b1Models;
+                return versimpelaarModels;
                 
-            case 'subsidie':
-                const subsidieModels = typedModels.filter(model => 
-                    model && model.info?.meta?.capabilities?.subsidie_app_access === true
-                );
-                console.log('[appModels] Subsidie app context - Available models:', {
-                    total: typedModels.length,
-                    subsidieAccessible: subsidieModels.length,
-                    subsidieModelIds: subsidieModels.map(m => m.id)
-                });
-                return subsidieModels;
-                
-            case 'general':
+            case 'chat':
             default:
-                console.log('[appModels] General context - All models available:', typedModels.length);
-                return typedModels;
+                // Filter models that have chat_app_access capability
+                const generalChatModels = typedModels.filter(model => 
+                    model && model.info?.meta?.capabilities?.chat_app_access === true
+                );
+
+                console.log('[appModels] Chat app context - Available models:', {
+                    available_models: generalChatModels
+                });
+                return generalChatModels;
         }
     }
 );
-
-// Utility function to get the first available model for the current app context
-export function getFirstAvailableAppModel(context?: 'b1' | 'subsidie' | 'general') {
-    return derived(filteredModels, ($filteredModels) => {
-        return $filteredModels.length > 0 ? $filteredModels[0].id : null;
-    });
-}
 
 // Utility function to set app context based on route
 export function setAppContextFromRoute(route: string) {
     console.log('[appModels] Setting app context for route:', route);
     
     // Only set context for specific app launcher routes, ignore admin and other routes
-    if (route && route.includes('/app-launcher/b1-taalniveau')) {
-        console.log('[appModels] Setting context to b1');
-        currentAppContext.set('b1');
+    if (route && route.includes('/app-launcher/versimpelaar')) {
+        console.log('[appModels] Setting context to versimpelaar');
+        currentAppContext.set('versimpelaar');
     } else if (route && route.includes('/app-launcher/subsidies')) {
-        console.log('[appModels] Setting context to subsidie');
-        currentAppContext.set('subsidie');
+        console.log('[appModels] Setting context to chat'); // Map subsidies to chat for now
+        currentAppContext.set('chat');
     } else if (route && (route.includes('/chat') || route === '/(app)' || route === '/(app)/')) {
-        // Only set to general for chat routes and main app route
-        console.log('[appModels] Setting context to general');
-        currentAppContext.set('general');
+        // Only set to chat for chat routes and main app route
+        console.log('[appModels] Setting context to chat');
+        currentAppContext.set('chat');
     }
     // For all other routes (admin, settings, etc.), don't change the context
 }

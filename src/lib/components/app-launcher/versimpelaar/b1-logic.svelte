@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'; 
-  import { models, settings } from '$lib/stores';
+  import { models, config } from '$lib/stores';
   import { filteredModels, currentAppContext } from '$lib/stores/appModels';
   import { WEBUI_BASE_URL } from '$lib/constants';
   import { fade } from 'svelte/transition';
@@ -26,24 +26,8 @@
 
   let useDefaultWords = true;
 
-  const originalDefaultWords = [
-    'Provinciale Staten', 'Gedeputeerde Staten', 'Directieteam', 'Regulier overleg (RO)',
-    'Fracties', 'Statenleden', 'Statenlid', 'Gedeputeerde', 'Commissaris van de Koning (CdK)',
-    'Subsidie', 'Begroting', 'Interprovinciaal overleg (IPO)', 'Ruimtelijke ordening',
-    'Regionaal beleid', 'Provinciefonds', 'Omgevingsvisie', 'Provinciale verordening',
-    'Regionaal samenwerkingsverband', 'Gebiedscommissie', 'Waterplan', 'Milieubeleidsplan',
-    'Inpassingsplan', 'Ruimtelijk Economisch Programma', 'Uitvoeringsprogramma Bereikbaarheid',
-    'Adaptatieplan Klimaat', 'Erfgoedprogramma', 'Interprovinciaal Coördinatie Overleg (IPCO)',
-    'Regionaal Beleidsplan Verkeersveiligheid (RBV)', 'Regionaal economisch beleid',
-    'Ontwikkelingsfonds', 'Veiligheids- en Crisismanagementplan (RVCP)', 'Natuurbeheer',
-    'Waterbeheer', 'Milieubeleid', 'Mobiliteitsbeleid', 'Plattelandsontwikkeling',
-    'Provinciale infrastructuur', 'Omgevingsverordening', 'Energietransitie', 'Waterkwaliteit',
-    'Duurzaamheidsagenda', 'Natuurbeheerplan', 'Mobiliteitsvisie', 'Sociale agenda',
-    'Bodembeleid', 'Burgerparticipatie', 'Ecologie', 'Ecologisch', 'Groenbeleid',
-    'Natuur- en landschapsbeheerorganisaties', 'Informerend stuk', 'Onderwerp', 'Samenvatting', 
-    'Kennisnemen van', 'Aanleiding en bestuurlijke context', 'Bevoegdheid', 'Communicatie', 'Vervolg', 
-    'Bijlage(n)', 'Sonderend stuk', 'Vraag aan PS', 'Context', 'Voorstel', 'Statenvoorstel', 'Geachte', 'Argumenten'
-  ];
+  // Remove hardcoded words - will be loaded from API
+  let originalDefaultWords = [];
 
   let activeDefaultWords = [...originalDefaultWords];
   let userWords = [];
@@ -55,9 +39,50 @@
   // Reactive statement for preservedWords based on user words and default toggle
   $: preservedWords = useDefaultWords ? [...new Set([...userWords, ...activeDefaultWords])] : [...new Set(userWords)];
 
+  // Load default words from config store
+  $: {
+    if ($config?.customization?.b1_default_preserved_words) {
+      try {
+        const configWords = $config.customization.b1_default_preserved_words;
+        if (typeof configWords === 'string') {
+          originalDefaultWords = JSON.parse(configWords);
+        } else if (Array.isArray(configWords)) {
+          originalDefaultWords = configWords;
+        } else {
+          originalDefaultWords = [];
+        }
+        activeDefaultWords = [...originalDefaultWords];
+      } catch (error) {
+        console.error('Error parsing B1 default words from config:', error);
+        originalDefaultWords = [];
+        activeDefaultWords = [];
+      }
+    }
+  }
+
   onMount(async () => {
     // Set app context to B1 to ensure proper model filtering
     currentAppContext.set('b1');
+    
+    // Load B1 configuration from backend
+    try {
+      const configResponse = await fetch(`${WEBUI_BASE_URL}/api/b1/config`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (configResponse.ok) {
+        const config = await configResponse.json();
+        MAX_WORDS = config.max_input_words;
+        MAX_CHUNK_TOKENS = config.max_chunk_tokens;
+        configLoaded = true;
+        console.log(`[B1 Config] Loaded: MAX_WORDS=${MAX_WORDS}, MAX_CHUNK_TOKENS=${MAX_CHUNK_TOKENS}`);
+      } else {
+        console.warn('[B1 Config] Failed to load config, using defaults');
+        configLoaded = true; // Still set to true to allow functionality with defaults
+      }
+    } catch (e) {
+      console.warn('[B1 Config] Error loading config, using defaults:', e);
+      configLoaded = true; // Still set to true to allow functionality with defaults
+    }
     
     if (browser) {
       // Load user preserved words
@@ -81,6 +106,14 @@
       
       initialLoadComplete = true;
     }
+
+    // Print meteen bij laden
+    console.log('[DEBUG] isLoading:', isLoading, '| selectedModels[0]:', selectedModels[0], '| disabled:', isLoading || !selectedModels[0]);
+    
+    // Print elke 3 seconden (3000 ms)
+    setInterval(() => {
+      console.log('[DEBUG] isLoading:', isLoading, '| selectedModels[0]:', selectedModels[0], '| disabled:', isLoading || !selectedModels[0]);
+    }, 3000)
   });
 
   // Save userWords to localStorage whenever it changes
@@ -105,10 +138,18 @@
   let totalChunks = 0;
   let receivedChunks = 0;
 
-  const MAX_WORDS = 24750; // Define the word limit
+  // Configuration variables - will be loaded from backend
+  let MAX_WORDS = 24750; // Default fallback value
+  let MAX_CHUNK_TOKENS = 1500; // Default fallback value
+  let configLoaded = false; // Track if config has been loaded
 
   // Main function to trigger text simplification
   async function simplifyText() {
+    // Show maximum word limit info if configuration is still loading
+    if (!configLoaded) {
+      toast.info(`Maximum aantal woorden: ${MAX_WORDS}. Configuratie wordt geladen op de achtergrond.`);
+    }
+
     // Reset errors and state
     error = null;
     isLoading = true;
@@ -163,7 +204,8 @@
           text: inputText,
           model: modelToUse, // Using the validated model (original or fallback)
           preserved_words: preservedWords, 
-          language_level: languageLevel
+          language_level: languageLevel,
+          max_chunk_tokens: MAX_CHUNK_TOKENS // Pass the loaded configuration
         })
       });
 
@@ -193,6 +235,11 @@
 
           try {
             const parsed = JSON.parse(line);
+
+            // Check for backend errors
+            if (parsed.error) {
+              throw new Error(parsed.error);
+            }
 
             if (parsed.total_chunks !== undefined) {
               totalChunks = parsed.total_chunks;
@@ -412,7 +459,7 @@
     return true;
   }
 </script>
-<div class="max-w-7xl mx-auto mt-6">
+<div class="max-w-7xl mx-auto" style="margin-top: -12px;">
   <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
     <div class="flex justify-between items-center mb-6">
       <div class="flex items-start gap-2">
@@ -423,16 +470,27 @@
           <p class="text-lg text-gray-600 dark:text-gray-300">
             Kies een tekst en breng die eenvoudig naar B1- of B2-niveau.
           </p>
-          <button
-            on:click={() => showInfoModal = true}
-            class="bg-blue-100 hover:bg-blue-200 dark:bg-blue-700 dark:hover:bg-blue-600 text-blue-700 dark:text-blue-200 font-medium py-1.5 px-3 rounded-md focus:outline-none focus:shadow-outline flex items-center gap-1.5 mb-1"
-            aria-label="Uitleg over de Versimpelaar"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>Wat doet de Versimpelaar?</span>
-          </button>
+          <div class="flex gap-2">
+            <button
+              on:click={() => showInfoModal = true}
+              class="bg-blue-100 hover:bg-blue-200 dark:bg-blue-700 dark:hover:bg-blue-600 text-blue-700 dark:text-blue-200 font-medium py-1.5 px-3 rounded-md focus:outline-none focus:shadow-outline flex items-center gap-1.5 mb-1"
+              aria-label="Uitleg over de Versimpelaar"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>Wat doet de Versimpelaar?</span>
+            </button>
+            <div
+              class="bg-green-100 dark:bg-green-700 text-green-700 dark:text-green-200 font-medium py-1.5 px-3 rounded-md flex items-center gap-1.5 mb-1"
+              aria-label="Maximum woordenaantal"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>Max woorden: {MAX_WORDS}</span>
+            </div>
+          </div>
         </div>
       </div>
       
@@ -523,7 +581,7 @@
 
           <!-- Bottom section with fixed height and spacing -->
           <div class="mt-auto">
-            <!-- Progress bar - same position as right side -->
+            <!-- File processing progress bar - same position as before -->
             <div class="mt-2 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
               <div class="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div
@@ -538,7 +596,9 @@
 
             <!-- Status text - fixed height -->
             <div class="mt-1 h-5 text-xs text-gray-500 dark:text-gray-400">
-              {#if isProcessingFile}
+              {#if inputWordCount > MAX_WORDS}
+                <span class="text-red-600 dark:text-red-400 font-medium">⚠️ Te veel woorden! Max {MAX_WORDS} toegestaan.</span>
+              {:else if isProcessingFile}
                 <span>Verwerken...</span>
               {:else if fileProcessingProgress === 100}
                 <span>Bestand verwerkt</span>
@@ -588,11 +648,11 @@
       </div>
       
       <!-- Midden: Translate button -->
-      <div class="hidden md:flex flex-col items-center justify-center">
+      <div class="flex flex-col items-center justify-center">
         <button
           on:click={simplifyText}
           disabled={isLoading || !selectedModelId}
-          class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-full focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed h-12 w-12 flex items-center justify-center"
+          class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-full md:rounded-full rounded-md focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed h-12 w-12 md:h-12 md:w-12 h-auto w-auto flex items-center justify-center gap-2 my-4 md:my-0"
           title={!selectedModelId ? "Geen model geselecteerd" : `Versimpel naar ${languageLevel}-taalniveau`}
         >
           {#if isLoading}
@@ -600,10 +660,12 @@
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
+            <span class="md:hidden">Verwerken...</span>
           {:else}
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 md:h-6 md:w-6 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
             </svg>
+            <span class="md:hidden">Versimpel naar {languageLevel}</span>
           {/if} 
         </button>
       </div>
@@ -816,7 +878,7 @@
 <Modal
   bind:show={showInfoModal}
   size="md"
-  containerClassName="p-0"
+  containerClassName="p-0 max-h-[70vh] overflow-y-auto"
 >
   <div class="p-6">
     <div class="flex justify-between items-center mb-4">
@@ -839,17 +901,30 @@
       </p>
       <h3 class="text-lg font-medium text-gray-800 dark:text-white mt-4">Wat is B1-taalniveau?</h3>
       <p>
-        B1 is een niveau binnen het Europees Referentiekader (ERK) voor talen. Teksten op B1-niveau:
+      B1 is een niveau binnen het Europees Referentiekader (ERK) voor talen. Teksten op B1-niveau:
       </p>
       <ul class="list-disc pl-5 space-y-1">
         <li>Gebruiken eenvoudige en veelvoorkomende woorden;</li>
         <li>Bevatten korte zinnen (doorgaans 15 tot 20 woorden per zin);</li>
         <li>Vermijden ingewikkelde zinsconstructies en vakjargon;</li>
         <li>Zijn concreet, duidelijk en direct geformuleerd.</li>
-      <p>
-        B1-niveau is geschikt voor de meeste volwassenen in Nederland, ook voor mensen met een lagere taalvaardigheid.
-      </p>
       </ul>
+      <p>
+        B1-niveau is geschikt voor het overgrote deel van de volwassen bevolking in Nederland, ook voor mensen met een lagere taalvaardigheid.
+      </p>
+      <h3 class="text-lg font-medium text-gray-800 dark:text-white mt-4">Wat is B2-taalniveau?</h3>
+      <p>
+        B2 is eveneens onderdeel van het Europees Referentiekader (ERK) voor talen. Teksten op B2-niveau:
+      </p>
+      <ul class="list-disc pl-5 space-y-1">
+        <li>Gebruiken wat complexere en minder alledaagse woorden en begrippen;</li>
+        <li>Hebben meer variatie in zinslengte (meestal tot 25 woorden per zin);</li>
+        <li>Bevatten meer verbindingswoorden (zoals ‘hoewel’, ‘desondanks’);</li>
+        <li>Kunnen enigszins complexere zinsconstructies bevatten, maar blijven helder en logisch opgebouwd.</li>
+      </ul>
+      <p>
+        B2-niveau is bedoeld voor mensen die zelfstandig en vlot complexere teksten kunnen begrijpen, bijvoorbeeld mensen met een goede beheersing van het Nederlands of met een hogere opleiding. B2 is toegevoegd als optie omdat B1 soms te eenvoudig is, waardoor nuance of details verloren kunnen gaan. Met B2 blijft de tekst toegankelijk, maar is er meer ruimte voor nuance.
+      </p>
       <h3 class="text-lg font-medium text-gray-800 dark:text-white mt-4">
       Hoe gebruik je de Versimpelaar?
       </h3>
