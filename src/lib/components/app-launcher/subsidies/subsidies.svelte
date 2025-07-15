@@ -462,7 +462,7 @@
 
                 <button
                     type="submit"
-                    disabled={isLoading || isProcessingFile || !$settings?.models?.[0]}
+                    disabled={isLoading || isProcessingFile || !userInput.trim()}
                     class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                     {#if isLoading}
@@ -470,8 +470,8 @@
                         Verwerken...
                     {:else if isProcessingFile}
                         Bestand verwerken...
-                    {:else if !$settings?.models?.[0]}
-                        Selecteer een model in de navigatiebalk
+                    {:else if !userInput.trim()}
+                        Voer eerst subsidieregeling in
                     {:else}
                         Haal relevante Criteria uit subsidieregelingen
                     {/if}

@@ -1,9 +1,6 @@
 // lib/appList.ts
 
-// Dynamisch User-type
-export type User = {
-  [key: string]: any;
-};
+
 
 interface AppDefinition {
   name: string;
@@ -29,5 +26,14 @@ export const apps: AppDefinition[] = [
     permission: (user) =>
       user?.role === 'admin' ||
       user?.permissions?.app_launcher?.versimpelaar
+  },
+  {
+    name: 'Subsidies',
+    icon: '💰',
+    href: '/app-launcher/subsidies2',
+    capabilityKey: 'chat_app_access',
+    permission: (user) =>
+      user?.role === 'admin' ||
+      user?.permissions?.app_launcher?.subsidies
   }
 ];

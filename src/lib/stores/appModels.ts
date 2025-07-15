@@ -29,7 +29,7 @@ interface Model {
 }
 
 // Store to track current app context
-export const currentAppContext = writable<'chat' | 'versimpelaar'>('chat'); // Default to 'chat' context
+export const currentAppContext = writable<'chat' | 'versimpelaar' | 'subsidie'>('chat'); // Default to 'chat' context
 
 // Derived store that filters models based on current app context
 export const filteredModels = derived(
@@ -51,6 +51,16 @@ export const filteredModels = derived(
                     available_models: versimpelaarModels
                 });
                 return versimpelaarModels;
+                
+            case 'subsidie':
+                // For subsidie app, use models with chat_app_access (same as chat)
+                const subsidieModels = typedModels.filter(model => 
+                    model && model.info?.meta?.capabilities?.chat_app_access === true
+                );
+                console.log('[appModels] Subsidie app context - Available models:', {
+                    available_models: subsidieModels
+                });
+                return subsidieModels;
                 
             case 'chat':
             default:
@@ -76,8 +86,8 @@ export function setAppContextFromRoute(route: string) {
         console.log('[appModels] Setting context to versimpelaar');
         currentAppContext.set('versimpelaar');
     } else if (route && route.includes('/app-launcher/subsidies')) {
-        console.log('[appModels] Setting context to chat'); // Map subsidies to chat for now
-        currentAppContext.set('chat');
+        console.log('[appModels] Setting context to subsidie');
+        currentAppContext.set('subsidie');
     } else if (route && (route.includes('/chat') || route === '/(app)' || route === '/(app)/')) {
         // Only set to chat for chat routes and main app route
         console.log('[appModels] Setting context to chat');

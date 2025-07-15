@@ -1279,3 +1279,9 @@ async def test_report_generation(
             "error": str(e),
             "traceback": traceback.format_exc()
         }
+
+# Test endpoint om te controleren of de router werkt
+@router.get("/test")
+async def test_endpoint():
+    """Test endpoint om te controleren of de subsidies router werkt"""
+    return {"message": "Subsidies router werkt!", "timestamp": datetime.now().isoformat()}

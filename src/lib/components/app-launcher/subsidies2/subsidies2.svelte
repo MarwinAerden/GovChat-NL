@@ -533,9 +533,9 @@
 </script>
 
 <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
-    {#if selectedDataFromPart1}        <div class="space-y-4">            <!-- Title section with centered title and subtitle, and left-aligned info button -->
+    {#if selectedDataFromPart1}        <div class="space-y-4">            <!-- Title section with centered title and subtitle, and left-aligned buttons -->
             <div class="flex items-start justify-between mb-6">
-                <div class="flex-1 flex justify-start">
+                <div class="flex-1 flex justify-start gap-2">
                     <button
                         type="button"
                         on:click={() => showInfoModal = true}
@@ -547,6 +547,16 @@
                         </svg>
                         <span>Uitleg</span>
                     </button>
+                    <a
+                        href="/app-launcher/subsidies"
+                        class="bg-green-100 hover:bg-green-200 dark:bg-green-700 dark:hover:bg-green-600 text-green-700 dark:text-green-200 font-medium py-1.5 px-3 rounded-md focus:outline-none focus:shadow-outline flex items-center gap-1.5"
+                        aria-label="Ga naar criteriaextractie"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span>Criteria Extractie</span>
+                    </a>
                 </div>
                 <div class="text-center flex-1">
                     <h2 class="text-2xl font-bold text-gray-800 dark:text-white">
