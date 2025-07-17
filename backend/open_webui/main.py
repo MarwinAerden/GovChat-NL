@@ -446,7 +446,7 @@ from open_webui.tasks import (
 )  # Import from tasks.py
 
 from open_webui.routers.app_launcher.b1_taalniveau import taalniveau
-from open_webui.routers.app_launcher import subsidies
+from open_webui.routers.app_launcher.subsidies import subsidies
 
 
 from open_webui.utils.redis import get_sentinels_from_env

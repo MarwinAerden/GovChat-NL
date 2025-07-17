@@ -492,6 +492,42 @@
             toast.error('Fout bij opslaan regeling');
         }
     }
+
+    async function deleteSelectedRegulation() {
+        if (!selectedRegulation) {
+            toast.error('Selecteer eerst een regeling om te verwijderen');
+            return;
+        }
+
+        const confirmed = confirm(`Weet je zeker dat je de regeling "${selectedRegulation}" wilt verwijderen?`);
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            const backendUrl = WEBUI_BASE_URL || 'http://localhost:8080';
+            const response = await fetch(`${backendUrl}/api/subsidies/regulations/${encodeURIComponent(selectedRegulation)}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                toast.success(`Regeling "${selectedRegulation}" succesvol verwijderd`);
+                
+                // Reset selectie en herlaad beschikbare regelingen
+                selectedRegulation = '';
+                await loadAvailableRegulations();
+            } else {
+                const error = await response.json();
+                toast.error(`Fout bij verwijderen regeling: ${error.detail || 'Onbekende fout'}`);
+            }
+        } catch (error) {
+            console.error('Fout bij verwijderen regeling:', error);
+            toast.error('Fout bij verwijderen regeling');
+        }
+    }
 </script>
 
 <div class="max-w-7xl mx-auto mt-6 space-y-6 px-4">
@@ -519,7 +555,7 @@
                 <!-- Regeling selectie dropdown -->
                 <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
                     <label for="regulation-select" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Kies een bestaande regeling (optioneel)
+                        Kies een regeling om bij te werken:
                     </label>
                     <div class="flex gap-2">
                         <select
@@ -540,6 +576,17 @@
                             class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md focus:outline-none focus:shadow-outline disabled:cursor-not-allowed"
                         >
                             Laad
+                        </button>
+                        <button
+                            type="button"
+                            on:click={deleteSelectedRegulation}
+                            disabled={!selectedRegulation || isLoadingRegulations}
+                            class="bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md focus:outline-none focus:shadow-outline disabled:cursor-not-allowed"
+                            title="Verwijder de geselecteerde regeling permanent"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
                         </button>
                     </div>
                     {#if isLoadingRegulations}

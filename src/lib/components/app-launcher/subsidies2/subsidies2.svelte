@@ -653,7 +653,7 @@
             {#if availableRegulations.length > 0}
                 <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-4 mb-4">
                     <label for="regulation-select-assess" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Kies een andere regeling (optioneel)
+                        Kies een regeling:
                     </label>
                     <div class="flex gap-2">
                         <select
