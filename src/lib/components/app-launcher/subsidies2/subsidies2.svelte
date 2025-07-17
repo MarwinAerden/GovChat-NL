@@ -15,6 +15,11 @@
     // Subscribe aan de geselecteerde output uit de store
     let selectedDataFromPart1: SubsidyResponse | null = null;
     
+    // Regeling selectie variabelen
+    let availableRegulations: any[] = [];
+    let selectedRegulation: string | null = null;
+    let isLoadingRegulations = false;
+    
     // Aanvraag tekst input
     let applicationText: string = '';
     
@@ -185,6 +190,9 @@
             // Haal eerst alle opgeslagen criteria op
             await fetchSavedOutputs();
             
+            // Laad beschikbare regelingen
+            await loadAvailableRegulations();
+            
             // Probeer eerst de globale selectie te laden
             const globalSelection = await loadGlobalSelection();
             
@@ -212,7 +220,7 @@
                 selectedDataFromPart1 = lastSelection;
             } else {
                 // Geen selectie? Toon een melding
-                toast.info("Geen criteria selectie gevonden. Ga naar Subsidie Admin Paneel om criteria te selecteren.");
+                toast.info("Geen criteria selectie gevonden. U kunt hieronder een regeling kiezen of ga naar Subsidie Admin Paneel om criteria te selecteren.");
             }        } catch (error) {
             console.error("Fout bij laden van opgeslagen subsidiecriteria:", error);
             toast.error("Kon opgeslagen subsidiecriteria niet laden");
@@ -526,6 +534,78 @@
         return 'text-red-600 dark:text-red-400';
     }
 
+    // Nieuwe functies voor regeling management
+    async function loadAvailableRegulations() {
+        isLoadingRegulations = true;
+        try {
+            const backendUrl = WEBUI_BASE_URL || 'http://localhost:8080';
+            const response = await fetch(`${backendUrl}/api/subsidies/regulations`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                availableRegulations = await response.json();
+                console.log(`${availableRegulations.length} regelingen geladen`);
+            } else {
+                console.error('Fout bij laden van regelingen:', response.statusText);
+            }
+        } catch (error) {
+            console.error('Fout bij laden van regelingen:', error);
+        } finally {
+            isLoadingRegulations = false;
+        }
+    }
+
+    async function selectRegulation() {
+        if (!selectedRegulation) {
+            toast.error('Selecteer eerst een regeling');
+            return;
+        }
+
+        try {
+            const backendUrl = WEBUI_BASE_URL || 'http://localhost:8080';
+            const response = await fetch(`${backendUrl}/api/subsidies/regulations/${selectedRegulation}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                const regulation = await response.json();
+                
+                // Converteer regeling naar SubsidyResponse formaat en update de store
+                const subsidyResponse: SubsidyResponse = {
+                    criteria: regulation.criteria || [],
+                    summary: regulation.summary || '',
+                    name: regulation.name,
+                    timestamp: regulation.timestamp,
+                    savedId: regulation.id
+                };
+
+                selectedDataFromPart1 = subsidyResponse;
+                
+                // Update ook de store zodat andere componenten het zien
+                subsidyStore.update(store => ({
+                    ...store,
+                    selectedOutput: subsidyResponse
+                }));
+                
+                toast.success(`Regeling "${regulation.name}" geladen`);
+            } else {
+                toast.error('Kon regeling niet laden');
+            }
+        } catch (error) {
+            console.error('Fout bij laden van regeling:', error);
+            toast.error('Fout bij laden van regeling');
+        }
+    }
+
     $: {
         console.log("selectedDataFromPart1:", selectedDataFromPart1);
         console.log("Store selected output:", $subsidyStore.selectedOutput);
@@ -568,6 +648,39 @@
                 </div>
                 <div class="flex-1"></div>
             </div>
+
+            <!-- Regeling selectie sectie -->
+            {#if availableRegulations.length > 0}
+                <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-4 mb-4">
+                    <label for="regulation-select-assess" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Kies een andere regeling (optioneel)
+                    </label>
+                    <div class="flex gap-2">
+                        <select
+                            id="regulation-select-assess"
+                            bind:value={selectedRegulation}
+                            disabled={isLoadingRegulations}
+                            class="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
+                        >
+                            <option value="">-- Blijf bij huidige regeling --</option>
+                            {#each availableRegulations as regulation}
+                                <option value={regulation.id}>{regulation.name}</option>
+                            {/each}
+                        </select>
+                        <button
+                            type="button"
+                            on:click={selectRegulation}
+                            disabled={!selectedRegulation || isLoadingRegulations}
+                            class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md focus:outline-none focus:shadow-outline disabled:cursor-not-allowed"
+                        >
+                            Wissel
+                        </button>
+                    </div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        {availableRegulations.length} regelingen beschikbaar
+                    </p>
+                </div>
+            {/if}
 
             {#if selectedDataFromPart1.summary}
                 <div class="border border-gray-300 rounded-md p-3 bg-gray-50 dark:bg-gray-700">
@@ -875,10 +988,54 @@
             {/if}
         </div>
     {:else}
-        <div class="text-center text-gray-500 dark:text-gray-400 py-10">
-            <p>Selecteer alstublieft eerst een opgeslagen resultaat in het Subsidie Admin Paneel of contacteer een Beheerder.</p>
-            <!-- Optioneel: Link terug naar deel 1 -->
-            <a href="/app-launcher/subsidies" class="text-blue-600 hover:underline mt-2 inline-block">Ga naar Admin Panel</a>
+        <div class="text-center py-10">
+            <h3 class="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-4">Geen criteria geselecteerd</h3>
+            
+            {#if availableRegulations.length > 0}
+                <!-- Toon regeling selectie als er geen criteria zijn -->
+                <div class="max-w-md mx-auto">
+                    <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-6">
+                        <h4 class="text-lg font-medium text-gray-800 dark:text-gray-200 mb-4">
+                            Kies een regeling om mee te beginnen
+                        </h4>
+                        <div class="space-y-3">
+                            <select
+                                bind:value={selectedRegulation}
+                                disabled={isLoadingRegulations}
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
+                            >
+                                <option value="">-- Selecteer een regeling --</option>
+                                {#each availableRegulations as regulation}
+                                    <option value={regulation.id}>{regulation.name}</option>
+                                {/each}
+                            </select>
+                            <button
+                                type="button"
+                                on:click={selectRegulation}
+                                disabled={!selectedRegulation || isLoadingRegulations}
+                                class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md focus:outline-none focus:shadow-outline disabled:cursor-not-allowed"
+                            >
+                                {isLoadingRegulations ? 'Laden...' : 'Regeling laden'}
+                            </button>
+                        </div>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-3">
+                            {availableRegulations.length} regelingen beschikbaar
+                        </p>
+                    </div>
+                </div>
+                <div class="mt-6">
+                    <p class="text-gray-500 dark:text-gray-400 mb-2">Of</p>
+                    <a href="/app-launcher/subsidies" class="text-blue-600 hover:underline">
+                        Ga naar Admin Panel om criteria te maken
+                    </a>
+                </div>
+            {:else}
+                <!-- Fallback als er geen regelingen zijn -->
+                <div class="text-gray-500 dark:text-gray-400">
+                    <p class="mb-4">Selecteer alstublieft eerst een opgeslagen resultaat in het Subsidie Admin Paneel of contacteer een Beheerder.</p>
+                    <a href="/app-launcher/subsidies" class="text-blue-600 hover:underline">Ga naar Admin Panel</a>
+                </div>
+            {/if}
         </div>    {/if}
 </div>
 

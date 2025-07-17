@@ -21,14 +21,19 @@ class SubsidyFileStorage:
         else:
             self.base_dir = base_dir
         
+        # Voeg submap toe voor standaard regelingen
+        self.regulations_dir = os.path.join(self.base_dir, "regulations")
+        
         print(f"SubsidyFileStorage initialiseren...")
         print(f"Root directory: {self.root_dir}")
         print(f"Subsidy storage directory: {self.base_dir}")
             
-        # Zorg dat de map bestaat
+        # Zorg dat de mappen bestaan
         try:
             os.makedirs(self.base_dir, exist_ok=True)
+            os.makedirs(self.regulations_dir, exist_ok=True)
             print(f"Directory succesvol aangemaakt/gecontroleerd: {self.base_dir}")
+            print(f"Regulations directory succesvol aangemaakt/gecontroleerd: {self.regulations_dir}")
             
             # Test schrijfpermissies
             test_file = os.path.join(self.base_dir, "test_write.txt")
@@ -209,3 +214,130 @@ class SubsidyFileStorage:
                 continue
                 
         return None
+    
+    # --- Nieuwe methodes voor regeling management ---
+    
+    def save_regulation(self, regulation_name: str, criteria: Dict, description: str = None) -> str:
+        """Sla een standaard regeling op die alle gebruikers kunnen selecteren"""
+        try:
+            regulation_id = str(uuid.uuid4())
+            timestamp = datetime.now().isoformat()
+            
+            data = {
+                "id": regulation_id,
+                "name": regulation_name,
+                "description": description or f"Subsidieregeling: {regulation_name}",
+                "timestamp": timestamp,
+                "criteria": criteria.get("criteria", []),
+                "summary": criteria.get("summary", ""),
+                "type": "regulation"
+            }
+            
+            # Gebruik een veilige bestandsnaam
+            safe_name = "".join(c for c in regulation_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            filename = f"regulation_{safe_name.replace(' ', '_')}_{regulation_id[:8]}.json"
+            filepath = os.path.join(self.regulations_dir, filename)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            print(f"Regeling opgeslagen: {regulation_name} -> {filepath}")
+            return regulation_id
+            
+        except Exception as e:
+            print(f"FOUT bij opslaan regeling: {e}")
+            raise
+    
+    def list_available_regulations(self) -> List[Dict]:
+        """Lijst alle beschikbare standaard regelingen op"""
+        regulations = []
+        
+        try:
+            if not os.path.exists(self.regulations_dir):
+                return []
+            
+            for filename in os.listdir(self.regulations_dir):
+                if not filename.endswith('.json'):
+                    continue
+                    
+                filepath = os.path.join(self.regulations_dir, filename)
+                
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    if data.get("type") == "regulation":
+                        regulations.append({
+                            "id": data.get("id"),
+                            "name": data.get("name"),
+                            "description": data.get("description"),
+                            "timestamp": data.get("timestamp"),
+                            "criteria_count": len(data.get("criteria", []))
+                        })
+                        
+                except (json.JSONDecodeError, IOError):
+                    continue
+            
+            # Sorteer op naam
+            regulations.sort(key=lambda x: x.get("name", ""))
+            
+        except Exception as e:
+            print(f"Error listing regulations: {e}")
+        
+        return regulations
+    
+    def get_regulation_by_id(self, regulation_id: str) -> Optional[Dict]:
+        """Haal een specifieke regeling op basis van ID"""
+        try:
+            if not os.path.exists(self.regulations_dir):
+                return None
+                
+            for filename in os.listdir(self.regulations_dir):
+                if not filename.endswith('.json'):
+                    continue
+                    
+                filepath = os.path.join(self.regulations_dir, filename)
+                
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    if data.get("id") == regulation_id:
+                        return data
+                        
+                except (json.JSONDecodeError, IOError):
+                    continue
+                    
+        except Exception as e:
+            print(f"Error getting regulation: {e}")
+            
+        return None
+    
+    def delete_regulation(self, regulation_id: str) -> bool:
+        """Verwijder een regeling"""
+        try:
+            if not os.path.exists(self.regulations_dir):
+                return False
+                
+            for filename in os.listdir(self.regulations_dir):
+                if not filename.endswith('.json'):
+                    continue
+                    
+                filepath = os.path.join(self.regulations_dir, filename)
+                
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    if data.get("id") == regulation_id:
+                        os.remove(filepath)
+                        print(f"Regeling verwijderd: {filepath}")
+                        return True
+                        
+                except (json.JSONDecodeError, IOError):
+                    continue
+                    
+        except Exception as e:
+            print(f"Error deleting regulation: {e}")
+            
+        return False

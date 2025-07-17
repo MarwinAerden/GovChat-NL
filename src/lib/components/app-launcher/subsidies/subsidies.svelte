@@ -28,6 +28,11 @@
     let editableCriteria: {id: number, text: string}[] = [];
     let editableSummary = '';
 
+    // Regeling selectie variabelen
+    let availableRegulations: any[] = [];
+    let selectedRegulation: string | null = null;
+    let isLoadingRegulations = false;
+
     // Use filtered models from store instead of manual filtering
     $: subsidieAccessibleModels = $filteredModels;
 
@@ -43,6 +48,9 @@
         try {
             // Haal eerst alle opgeslagen criteria op
             await fetchSavedOutputs();
+            
+            // Laad beschikbare regelingen
+            await loadAvailableRegulations();
             
             // Probeer eerst de globale selectie te laden
             const globalSelection = await loadGlobalSelection();
@@ -369,13 +377,128 @@
             toast.error(`Kon de standaard selectie niet instellen: ${error.message}`);
         }
     }
+
+    // Nieuwe functies voor regeling management
+    async function loadAvailableRegulations() {
+        isLoadingRegulations = true;
+        try {
+            const backendUrl = WEBUI_BASE_URL || 'http://localhost:8080';
+            const response = await fetch(`${backendUrl}/api/subsidies/regulations`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                availableRegulations = await response.json();
+                console.log(`${availableRegulations.length} regelingen geladen`);
+            } else {
+                console.error('Fout bij laden van regelingen:', response.statusText);
+            }
+        } catch (error) {
+            console.error('Fout bij laden van regelingen:', error);
+        } finally {
+            isLoadingRegulations = false;
+        }
+    }
+
+    async function selectRegulation() {
+        if (!selectedRegulation) {
+            toast.error('Selecteer eerst een regeling');
+            return;
+        }
+
+        try {
+            const backendUrl = WEBUI_BASE_URL || 'http://localhost:8080';
+            const response = await fetch(`${backendUrl}/api/subsidies/regulations/${selectedRegulation}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                const regulation = await response.json();
+                
+                // Converteer regeling naar SubsidyResponse formaat
+                const subsidyResponse: SubsidyResponse = {
+                    criteria: regulation.criteria || [],
+                    summary: regulation.summary || '',
+                    name: regulation.name,
+                    timestamp: regulation.timestamp,
+                    savedId: regulation.id
+                };
+
+                responseData = subsidyResponse;
+                setSelectedOutput(subsidyResponse, false);
+                toast.success(`Regeling "${regulation.name}" geladen`);
+            } else {
+                toast.error('Kon regeling niet laden');
+            }
+        } catch (error) {
+            console.error('Fout bij laden van regeling:', error);
+            toast.error('Fout bij laden van regeling');
+        }
+    }
+
+    async function saveAsRegulation(outputData: SubsidyResponse) {
+        if (!outputData) {
+            toast.error('Geen data om als regeling op te slaan');
+            return;
+        }
+
+        const name = prompt("Geef een naam op voor deze regeling:", outputData.name || 'Nieuwe regeling');
+        if (name === null) return; // User cancelled
+        if (!name.trim()) {
+            toast.error('Regeling naam is verplicht');
+            return;
+        }
+
+        const description = prompt("Geef een beschrijving op (optioneel):", outputData.summary || '');
+
+        try {
+            const backendUrl = WEBUI_BASE_URL || 'http://localhost:8080';
+            const response = await fetch(`${backendUrl}/api/subsidies/regulations`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    name: name.trim(),
+                    description: description?.trim() || null,
+                    criteria: {
+                        criteria: outputData.criteria,
+                        summary: outputData.summary
+                    }
+                })
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                toast.success(`Regeling "${name.trim()}" succesvol opgeslagen als standaard regeling`);
+                
+                // Herlaad beschikbare regelingen
+                await loadAvailableRegulations();
+            } else {
+                const error = await response.json();
+                toast.error(`Fout bij opslaan regeling: ${error.detail || 'Onbekende fout'}`);
+            }
+        } catch (error) {
+            console.error('Fout bij opslaan regeling:', error);
+            toast.error('Fout bij opslaan regeling');
+        }
+    }
 </script>
 
 <div class="max-w-7xl mx-auto mt-6 space-y-6 px-4">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5">            <div class="flex justify-between items-center mb-6">
                 <div class="flex items-center gap-2">
                     <h2 class="text-2xl font-bold text-gray-800 dark:text-white">
-                        Admin Panel Subsidie Criteria
+                        Subsidie Regelingen Beheer
                     </h2>
                     <!-- Add info button next to the title -->
                     <button
@@ -393,9 +516,44 @@
             </div>
 
             <form on:submit|preventDefault={handleSubmit} class="space-y-4">
+                <!-- Regeling selectie dropdown -->
+                <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+                    <label for="regulation-select" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Kies een bestaande regeling (optioneel)
+                    </label>
+                    <div class="flex gap-2">
+                        <select
+                            id="regulation-select"
+                            bind:value={selectedRegulation}
+                            disabled={isLoadingRegulations}
+                            class="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50"
+                        >
+                            <option value="">-- Selecteer een regeling --</option>
+                            {#each availableRegulations as regulation}
+                                <option value={regulation.id}>{regulation.name}</option>
+                            {/each}
+                        </select>
+                        <button
+                            type="button"
+                            on:click={selectRegulation}
+                            disabled={!selectedRegulation || isLoadingRegulations}
+                            class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md focus:outline-none focus:shadow-outline disabled:cursor-not-allowed"
+                        >
+                            Laad
+                        </button>
+                    </div>
+                    {#if isLoadingRegulations}
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Regelingen laden...</p>
+                    {:else if availableRegulations.length === 0}
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Geen regelingen beschikbaar</p>
+                    {:else}
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">{availableRegulations.length} regelingen beschikbaar</p>
+                    {/if}
+                </div>
+
                 <div>
                     <label for="subsidy-input" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Uw Regeling (of upload een bestand)
+                        Of voer uw eigen regeling in (upload een bestand of typ)
                     </label>
                     <div class="relative">
                         {#if isProcessingFile}
@@ -488,7 +646,7 @@
                         output.criteria.length > 0 && 
                         (!output.name.includes("Naamloos") || output.criteria.length > 0)
                     ) as savedOutput (savedOutput.savedId)}
-                        <li class="border border-gray-200 dark:border-gray-700 rounded p-3 flex justify-between items-center {$subsidyStore.selectedOutput?.savedId === savedOutput.savedId ? 'bg-blue-100 dark:bg-blue-900/50 ring-2 ring-blue-500' : 'bg-gray-50 dark:bg-gray-700/50'}">
+                        <li class="border border-gray-200 dark:border-gray-700 rounded p-3 flex justify-between items-center bg-gray-50 dark:bg-gray-700/50">
                             <div>
                                 <p class="font-semibold text-gray-800 dark:text-gray-200">
                                     {savedOutput.name || 'Resultaat'}
@@ -497,17 +655,19 @@
                                     Opgeslagen: {savedOutput.timestamp?.toLocaleString() ?? 'Onbekend'}
                                     ({savedOutput.criteria.length} criteria)
                                 </p>
-                            </div>                            <button
-                                type="button"
-                                on:click={() => selectOutput(savedOutput)}
-                                class="ml-4 px-3 py-1 text-sm rounded focus:outline-none focus:ring-2 focus:ring-offset-1 whitespace-nowrap min-w-[120px] {$subsidyStore.selectedOutput?.savedId === savedOutput.savedId ? 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500' : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-500 focus:ring-gray-400'}"
-                                title="Selecteer dit resultaat om te gebruiken"
-                            >
-                                {$subsidyStore.selectedOutput?.savedId === savedOutput.savedId ? 'Geselecteerd' : 'Selecteer'}
-                            </button>
+                            </div>                            <div class="ml-4">
+                                <button
+                                    type="button"
+                                    on:click={() => saveAsRegulation(savedOutput)}
+                                    class="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 whitespace-nowrap"
+                                    title="Sla op als standaard regeling voor alle gebruikers"
+                                >
+                                    Als Regeling
+                                </button>
+                            </div>
                         </li>
                     {/each}
-                </ul>                <div class="mt-4 flex justify-between items-center gap-2">
+                </ul>                <div class="mt-4 flex justify-center">
                     <button
                         type="button"
                         on:click={handleClearOutputs}
@@ -515,20 +675,6 @@
                     >
                         Wis Alle Opgeslagen Resultaten
                     </button>
-                    {#if $subsidyStore.selectedOutput && $user?.role === 'admin'}
-                        <button
-                            type="button"
-                            on:click={setAsGlobalStandard}
-                            class="text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-1 px-3 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                            </svg>
-                            Maak Standaard voor alle Gebruikers
-                        </button>
-                    {:else}
-                        <div></div>
-                    {/if}
                 </div>
             </div>
         {:else}
@@ -578,14 +724,17 @@
                                 </svg>
                                 Bewerk Criteria
                             </button>
+                            
                             <button
                                 type="button"
-                                on:click={saveCurrentOutput}
-                                class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
-                                title="Voeg dit resultaat toe aan de lijst en geef een naam op"
+                                on:click={() => saveAsRegulation(responseData)}
+                                class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2"
+                                title="Sla op als standaard regeling voor alle gebruikers"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                                Sla Resultaat Op Met Naam...
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0h3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                                Sla Op Als Regeling...
                             </button>
                         </div>
                     {:else}
@@ -689,29 +838,6 @@
             {/if}
         </div>
     {/if}
-
-    {#if $subsidyStore.selectedOutput}
-        <div class="bg-blue-50 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700 rounded-lg shadow p-5">
-            <h3 class="text-lg font-semibold text-blue-800 dark:text-blue-200 mb-2">Geselecteerd Resultaat: "{$subsidyStore.selectedOutput.name}"</h3>
-            {#if $subsidyStore.selectedOutput.summary}
-                <p class="text-sm text-blue-700 dark:text-blue-300 mb-2"><strong>Samenvatting:</strong> {$subsidyStore.selectedOutput.summary}</p>
-            {/if}
-            <p class="text-sm text-blue-700 dark:text-blue-300"><strong>Aantal criteria:</strong> {$subsidyStore.selectedOutput.criteria.length}</p>            <!-- Nieuwe knop om selectie op te slaan naar backend -->
-            <div class="mt-4 flex justify-end">
-                <button
-                    type="button"
-                    on:click={() => {
-                        // Ga direct naar deel 2
-                        window.location.href = '/app-launcher/subsidies2';
-                    }}
-                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline flex items-center gap-2 whitespace-nowrap"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                    </svg>
-                    Ga naar beoordelingstool
-                </button>
-            </div>        </div>    {/if}
 </div>
 
 <!-- Info modal voor app uitleg -->

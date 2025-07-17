@@ -1285,3 +1285,89 @@ async def test_report_generation(
 async def test_endpoint():
     """Test endpoint om te controleren of de subsidies router werkt"""
     return {"message": "Subsidies router werkt!", "timestamp": datetime.now().isoformat()}
+
+# --- Nieuwe endpoints voor regeling management ---
+
+class RegulationInput(BaseModel):
+    name: str
+    description: Optional[str] = None
+    criteria: Dict
+    
+@router.post("/regulations")
+async def save_regulation(
+    regulation_data: RegulationInput,
+    user=Depends(get_current_user)
+):
+    """Sla een nieuwe standaard regeling op (alleen voor admins)"""
+    try:
+        # Check of gebruiker admin rechten heeft (optioneel)
+        # if not user.role == "admin":
+        #     raise HTTPException(status_code=403, detail="Alleen admins kunnen regelingen toevoegen")
+        
+        regulation_id = subsidy_storage.save_regulation(
+            regulation_name=regulation_data.name,
+            criteria=regulation_data.criteria,
+            description=regulation_data.description
+        )
+        
+        return {
+            "success": True,
+            "regulation_id": regulation_id,
+            "message": f"Regeling '{regulation_data.name}' succesvol opgeslagen"
+        }
+        
+    except Exception as e:
+        print(f"Error saving regulation: {e}")
+        raise HTTPException(status_code=500, detail=f"Fout bij opslaan regeling: {str(e)}")
+
+@router.get("/regulations")
+async def list_regulations():
+    """Lijst alle beschikbare regelingen op"""
+    try:
+        regulations = subsidy_storage.list_available_regulations()
+        return regulations
+        
+    except Exception as e:
+        print(f"Error listing regulations: {e}")
+        raise HTTPException(status_code=500, detail=f"Fout bij ophalen regelingen: {str(e)}")
+
+@router.get("/regulations/{regulation_id}")
+async def get_regulation(regulation_id: str):
+    """Haal een specifieke regeling op"""
+    try:
+        regulation = subsidy_storage.get_regulation_by_id(regulation_id)
+        
+        if not regulation:
+            raise HTTPException(status_code=404, detail="Regeling niet gevonden")
+        
+        return regulation
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting regulation: {e}")
+        raise HTTPException(status_code=500, detail=f"Fout bij ophalen regeling: {str(e)}")
+
+@router.delete("/regulations/{regulation_id}")
+async def delete_regulation(
+    regulation_id: str,
+    user=Depends(get_current_user)
+):
+    """Verwijder een regeling (alleen voor admins)"""
+    try:
+        # Check of gebruiker admin rechten heeft (optioneel)
+        # if not user.role == "admin":
+        #     raise HTTPException(status_code=403, detail="Alleen admins kunnen regelingen verwijderen")
+        
+        success = subsidy_storage.delete_regulation(regulation_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Regeling niet gevonden")
+        
+        return {"success": True, "message": "Regeling succesvol verwijderd"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting regulation: {e}")
+        raise HTTPException(status_code=500, detail=f"Fout bij verwijderen regeling: {str(e)}")
